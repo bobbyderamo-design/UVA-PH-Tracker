@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>UVA Population Health – Project Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f1f5f9; }
+  input[type=range] { -webkit-appearance: none; appearance: none; height: 5px; border-radius: 3px; background: #e2e8f0; outline: none; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; cursor: pointer; }
+  select, textarea { font-family: inherit; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #f1f5f9; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+// ── Supabase config ───────────────────────────────────────────────────────
+const SUPABASE_URL  = "https://xllxvznunqxkodwhqiba.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsbHh2em51bnF4a29kd2hxaWJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMjIyNDIsImV4cCI6MjA5NTg5ODI0Mn0.5_vaEd0zjtM4EvGTrKMkncZw9iD-BYhXdkVi8mvAy4I";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+const { useState, useEffect, useCallback, useRef } = React;
+
+// ── Seed data ─────────────────────────────────────────────────────────────
+const INIT = [
+  { id:1,  program:"Cell Phone Program",                        director:"Jared",          division:"Department Wide",                  specialist:"Amy",         progress:0, status:"Not Started", priority:"Medium", notes:"This program uses philanthropic dollars and includes managing Verizon and prepaid cellphones to provide patients with a no cost phone. It requires managing the MDM on the Verizon dashboard as well as procuring prepaid phones from Walmart. Coordinating with the HCS Med Students and working with other PH team members to distribute phones and manage eligibility.", by:"", when:"", comments:[] },
+  { id:2,  program:"Event Planning (Internal)",                  director:"All",            division:"Department Wide",                  specialist:"Amy",         progress:0, status:"Not Started", priority:"Low",    notes:"Event planning involving department wide gatherings including location, catering, logistics, etc. (i.e., Socktober, Health Week Events)", by:"", when:"", comments:[] },
+  { id:3,  program:"Joint Commission Readiness",                 director:"Catherine",      division:"Department Wide",                  specialist:"Amy",         progress:0, status:"Not Started", priority:"High",   notes:"TJC Project Management Support", by:"", when:"", comments:[] },
+  { id:4,  program:"Uber Health / Transportation",               director:"Jared",          division:"System Access & Care Navigation",  specialist:"Amy",         progress:0, status:"Not Started", priority:"Medium", notes:"This program requires management of the Uber Health dashboard. Billing reconciliation and invoicing for all transportation providers.", by:"", when:"", comments:[] },
+  { id:5,  program:"PAC Management",                            director:"Bev / Laquita",  division:"Transitions & Post-Acute Care",    specialist:"Amy",         progress:0, status:"Not Started", priority:"Medium", notes:"Point-Click-Care support, automation work, reporting, etc.", by:"", when:"", comments:[] },
+  { id:6,  program:"Onboarding Program Summaries",              director:"All",            division:"Department Wide",                  specialist:"Cynthia",     progress:0, status:"Not Started", priority:"Medium", notes:"Instead of looping in directors to meet with stakeholders, have the PH specialist team field those educational opportunities.", by:"", when:"", comments:[] },
+  { id:7,  program:"Food as Medicine Support",                  director:"Betsy",          division:"Department Wide",                  specialist:"Cynthia",     progress:0, status:"Not Started", priority:"High",   notes:"Multi-faceted project that needs coordination assistance between Pop Health, PCPs, Nutritionists, Med Students, Data Collection and Tracking, interfacing with food supplier 4P, and more.", by:"", when:"", comments:[] },
+  { id:8,  program:"Grant Assistance (Finance)",                director:"All",            division:"Department Wide",                  specialist:"Cynthia",     progress:0, status:"Not Started", priority:"Medium", notes:"It's a challenge to get all the supporting material needed — letters of support, data, anecdotes. Would love some support with the 'extras', while others might appreciate actual grant-writing assistance.", by:"", when:"", comments:[] },
+  { id:9,  program:"Specialty Outfitted SUV / CP Clinical Care Program", director:"Robert", division:"System Access & Care Navigation", specialist:"Cynthia",    progress:0, status:"Not Started", priority:"High",   notes:"The specialty fitted SUV is essentially project tracking, expense monitoring, grant funds tracking, protocol tracking, and more.", by:"", when:"", comments:[] },
+  { id:10, program:"Philanthropy Manager",                      director:"Betsy",          division:"Population Health, Value-Based Care", specialist:"Cynthia",  progress:0, status:"Not Started", priority:"Medium", notes:"Philanthropy focused data, tracking, and reporting. Includes Monthly Volume Assistance and Data for Philanthropists.", by:"", when:"", comments:[] },
+  { id:11, program:"Pediatric & Adult Palliative and Hospice",  director:"Novella / Jeanne", division:"Department Wide",               specialist:"Cynthia",     progress:0, status:"Not Started", priority:"Medium", notes:"Workflows, patient facing flyers, physician FAQs, huddling with teams/education — also involves all of the information under the desktop icon.", by:"", when:"", comments:[] },
+  { id:12, program:"Locus Health Program Management",           director:"Jared",          division:"Transitions & Post-Acute Care",    specialist:"Jennie",      progress:0, status:"Not Started", priority:"High",   notes:"Requires connecting with PH and non-PH teams to develop and manage RPM programs that utilize Locus Health. Working with IT/EPIC to ensure builds are completed and up to date.", by:"", when:"", comments:[] },
+  { id:13, program:"Compass Rose",                              director:"Jared / Bev",    division:"System Access & Care Navigation",  specialist:"Jennie / Amy",progress:0, status:"Not Started", priority:"Medium", notes:"Requires understanding of CoRo capabilities. Managing requests for CoRo updates. Exploring new functionalities. Jennie and Amy are supporting this work currently.", by:"", when:"", comments:[] },
+  { id:14, program:"Partnership with Other Departments",        director:"Betsy",          division:"Population Health, Value-Based Care", specialist:"Ralph",    progress:0, status:"Not Started", priority:"Medium", notes:"WellAware would like to expand by adding department-focused CHWs with Pediatrics, Neuro, Geriatrics, etc. Would love assistance tracking the status of these proposals, coming up with new ideas for partnerships, and providing other depts with information about how we could assist.", by:"", when:"", comments:[] },
+  { id:15, program:"Monthly Volumes for PH Programs",          director:"All",            division:"Department Wide",                  specialist:"Jennie",      progress:0, status:"Not Started", priority:"Low",    notes:"Will be shifted to automation; stick to current process for the coming months.", by:"", when:"", comments:[] },
+  { id:16, program:"Project Management Support",               director:"Robert",         division:"Department Wide",                  specialist:"All",         progress:0, status:"Not Started", priority:"High",   notes:"This happens all over the place in a variety of divisions. Need to establish a process or tool to track current and future projects. Robert will lead this effort to systemize the project intake process working closely with the PH Specialists, Directors, and Vickie.", by:"", when:"", comments:[] },
+];
+
+const STATUSES  = ["Not Started","In Progress","On Hold","Complete"];
+const PRIORITIES = ["High","Medium","Low"];
+const DB_ROW_ID  = 1; // We store the entire projects array as one JSON row
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function pColor(pct) {
+  if (pct === 0) return "#ef4444";
+  if (pct <= 50) {
+    const t = pct / 50;
+    return `rgb(${Math.round(239+t*(234-239))},${Math.round(68+t*(179-68))},${Math.round(68+t*(8-68))})`;
+  }
+  const t = (pct - 50) / 50;
+  return `rgb(${Math.round(234+t*(34-234))},${Math.round(179+t*(197-179))},${Math.round(8+t*(94-8))})`;
+}
+function fmtDate(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
+}
+function fmtTime(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+}
+function initials(name) {
+  return name.split(" ").map(w=>w[0]).join("").toUpperCase().slice(0,2);
+}
+function avatarColor(name) {
+  const colors = ["#232D4B","#E57200","#0369a1","#7c3aed","#059669","#dc2626","#d97706"];
+  let h = 0; for (let c of name) h = (h * 31 + c.charCodeAt(0)) % colors.length;
+  return colors[h];
+}
+const statColors = {"Not Started":"#94a3b8","In Progress":"#f59e0b","On Hold":"#8b5cf6","Complete":"#22c55e"};
+
+// ── Supabase read/write ───────────────────────────────────────────────────
+async function dbLoad() {
+  const { data, error } = await sb.from("projects").select("data").eq("id", DB_ROW_ID).single();
+  if (error || !data) return null;
+  return data.data.map(p => ({...p, comments: p.comments||[]}));
+}
+
+async function dbSave(projects) {
+  const { error } = await sb.from("projects")
+    .upsert({ id: DB_ROW_ID, data: projects, updated_at: new Date().toISOString() });
+  if (error) console.error("Save error:", error);
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────
+function Modal({title, onClose, onSave, saveLabel, children}) {
+  const inp = (s={}) => ({padding:"9px 11px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",...s});
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:20}}>
+      <div style={{background:"white",borderRadius:14,padding:28,width:"100%",maxWidth:520,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 30px 80px rgba(0,0,0,0.3)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+          <h3 style={{margin:0,color:"#232D4B",fontSize:17,fontWeight:800}}>{title}</h3>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"#94a3b8"}}>✕</button>
+        </div>
+        {children}
+        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:20}}>
+          <button onClick={onClose} style={{padding:"9px 20px",border:"1.5px solid #e2e8f0",borderRadius:8,background:"white",cursor:"pointer",fontSize:13}}>Cancel</button>
+          <button onClick={onSave} style={{padding:"9px 24px",background:"#232D4B",color:"white",border:"none",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:700}}>{saveLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({label, children}) {
+  return (
+    <div style={{marginBottom:14}}>
+      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#64748b",marginBottom:5,letterSpacing:"0.06em",textTransform:"uppercase"}}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────
+function App() {
+  const [projects, setProjects]         = useState([]);
+  const [loaded, setLoaded]             = useState(false);
+  const [syncErr, setSyncErr]           = useState(false);
+  const [user, setUser]                 = useState("");
+  const [nameInput, setNameInput]       = useState("");
+  const [search, setSearch]             = useState("");
+  const [fDir, setFDir]                 = useState("All");
+  const [fSpec, setFSpec]               = useState("All");
+  const [fDiv, setFDiv]                 = useState("All");
+  const [fStat, setFStat]               = useState("All");
+  const [expanded, setExpanded]         = useState(null);
+  const [editing, setEditing]           = useState(null);
+  const [ef, setEf]                     = useState({});
+  const [saving, setSaving]             = useState(false);
+  const [addOpen, setAddOpen]           = useState(false);
+  const [newP, setNewP]                 = useState({program:"",director:"",division:"",specialist:"",priority:"Medium",notes:""});
+  const [commentDrafts, setCommentDrafts] = useState({});
+  const [liveUsers, setLiveUsers]       = useState([]);
+  const channelRef                      = useRef(null);
+
+  const inp = (s={}) => ({padding:"9px 11px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",...s});
+
+  // ── Initial load ────────────────────────────────────────────────────────
+  const load = useCallback(async () => {
+    const rows = await dbLoad();
+    if (rows) {
+      setProjects(rows);
+      setSyncErr(false);
+    } else {
+      // First time — seed the database
+      await dbSave(INIT);
+      setProjects(INIT);
+    }
+    setLoaded(true);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // ── Realtime subscription ───────────────────────────────────────────────
+  useEffect(() => {
+    if (!user) return;
+
+    // Presence + data change channel
+    const channel = sb.channel("ph-tracker", {
+      config: { presence: { key: user } }
+    });
+
+    channel
+      .on("postgres_changes", {
+        event: "UPDATE",
+        schema: "public",
+        table: "projects",
+        filter: `id=eq.${DB_ROW_ID}`
+      }, payload => {
+        if (payload.new?.data) {
+          setProjects(payload.new.data.map(p => ({...p, comments: p.comments||[]})));
+        }
+      })
+      .on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState();
+        setLiveUsers(Object.keys(state));
+      })
+      .subscribe(async status => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({ user, online_at: new Date().toISOString() });
+        }
+      });
+
+    channelRef.current = channel;
+    return () => { sb.removeChannel(channel); };
+  }, [user]);
+
+  // ── Persist ─────────────────────────────────────────────────────────────
+  async function persist(updated) {
+    setProjects(updated);
+    setSaving(true);
+    try {
+      await dbSave(updated);
+      setSyncErr(false);
+    } catch(e) {
+      console.error(e);
+      setSyncErr(true);
+    }
+    setSaving(false);
+  }
+
+  function stamp(p, extra) { return {...p, ...extra, by: user, when: new Date().toISOString()}; }
+
+  function upProg(id, pct) {
+    persist(projects.map(p => p.id !== id ? p : stamp(p, {
+      progress: pct,
+      status: pct===100 ? "Complete" : pct===0 ? "Not Started" : p.status==="Not Started" ? "In Progress" : p.status
+    })));
+  }
+
+  function upStat(id, status) {
+    persist(projects.map(p => p.id !== id ? p : stamp(p, {
+      status,
+      progress: status==="Complete" ? 100 : status==="Not Started" ? 0 : p.progress
+    })));
+  }
+
+  function saveEdit() {
+    persist(projects.map(p => p.id === editing ? {...ef, by: user, when: new Date().toISOString()} : p));
+    setEditing(null);
+  }
+
+  function addProject() {
+    if (!newP.program.trim()) return;
+    persist([...projects, {...newP, id: Date.now(), progress:0, status:"Not Started", by:user, when:new Date().toISOString(), comments:[]}]);
+    setNewP({program:"",director:"",division:"",specialist:"",priority:"Medium",notes:""});
+    setAddOpen(false);
+  }
+
+  function postComment(id) {
+    const text = (commentDrafts[id]||"").trim();
+    if (!text) return;
+    const comment = {id: Date.now(), text, by: user, when: new Date().toISOString()};
+    persist(projects.map(p => p.id !== id ? p : {...p, comments:[...(p.comments||[]), comment]}));
+    setCommentDrafts(d => ({...d, [id]:""}));
+  }
+
+  function deleteComment(projectId, commentId) {
+    persist(projects.map(p => p.id !== projectId ? p : {...p, comments: p.comments.filter(c => c.id !== commentId)}));
+  }
+
+  const dirs  = ["All", ...new Set(projects.map(p => p.director))];
+  const specs = ["All", ...new Set(projects.map(p => p.specialist))];
+  const divs  = ["All", ...new Set(projects.map(p => p.division))];
+
+  const visible = projects.filter(p =>
+    (fDir==="All"  || p.director===fDir) &&
+    (fSpec==="All" || p.specialist===fSpec) &&
+    (fDiv==="All"  || p.division===fDiv) &&
+    (fStat==="All" || p.status===fStat) &&
+    (!search || [p.program,p.director,p.specialist,p.notes,p.division].some(v=>v.toLowerCase().includes(search.toLowerCase())))
+  );
+
+  const ct = {
+    total: projects.length,
+    ns:   projects.filter(p=>p.status==="Not Started").length,
+    ip:   projects.filter(p=>p.status==="In Progress").length,
+    oh:   projects.filter(p=>p.status==="On Hold").length,
+    done: projects.filter(p=>p.status==="Complete").length,
+  };
+
+  const hasFilter = search || fDir!=="All" || fSpec!=="All" || fDiv!=="All" || fStat!=="All";
+
+  // ── Login ────────────────────────────────────────────────────────────────
+  if (!user) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"linear-gradient(135deg,#232D4B 0%,#1a2236 100%)"}}>
+      <div style={{background:"white",borderRadius:16,padding:40,width:380,textAlign:"center",boxShadow:"0 30px 80px rgba(0,0,0,0.4)"}}>
+        <div style={{width:58,height:58,background:"#232D4B",borderRadius:12,margin:"0 auto 16px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>🏥</div>
+        <h2 style={{margin:"0 0 4px",color:"#232D4B",fontSize:20,fontWeight:800}}>UVA Population Health</h2>
+        <p style={{color:"#94a3b8",margin:"0 0 28px",fontSize:13}}>New Programmatic/Initiative Management</p>
+        <label style={{display:"block",textAlign:"left",fontSize:11,fontWeight:700,color:"#64748b",marginBottom:6,letterSpacing:"0.06em",textTransform:"uppercase"}}>Your Name</label>
+        <input value={nameInput} onChange={e=>setNameInput(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&nameInput.trim()&&setUser(nameInput.trim())}
+          placeholder="Enter your name to continue..."
+          style={{...inp(),marginBottom:14}} />
+        <button onClick={()=>nameInput.trim()&&setUser(nameInput.trim())}
+          style={{width:"100%",background:"#E57200",color:"white",border:"none",borderRadius:8,padding:"12px 0",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+          Enter Dashboard →
+        </button>
+        <p style={{fontSize:11,color:"#cbd5e1",marginTop:14}}>Updates sync live across the whole team.</p>
+      </div>
+    </div>
+  );
+
+  if (!loaded) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"#64748b",fontSize:14}}>
+      Connecting to database…
+    </div>
+  );
+
+  // ── Dashboard ─────────────────────────────────────────────────────────────
+  return (
+    <div style={{minHeight:"100vh",background:"#f1f5f9"}}>
+
+      {/* Header */}
+      <div style={{background:"#232D4B",padding:"13px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,borderBottom:"3px solid #E57200",position:"sticky",top:0,zIndex:50}}>
+        <div>
+          <div style={{color:"white",fontWeight:800,fontSize:15}}>UVA Health · Population Health</div>
+          <div style={{color:"rgba(255,255,255,0.55)",fontSize:11.5,marginTop:1}}>New Programmatic/Initiative Management</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+
+          {/* Live users */}
+          {liveUsers.length > 0 && (
+            <div style={{display:"flex",alignItems:"center",gap:4}}>
+              <span style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",display:"inline-block",boxShadow:"0 0 0 2px rgba(34,197,94,0.3)"}} />
+              <span style={{fontSize:11,color:"rgba(255,255,255,0.6)"}}>
+                {liveUsers.length === 1 ? "Just you" : `${liveUsers.length} online`}
+              </span>
+              <div style={{display:"flex",marginLeft:4}}>
+                {liveUsers.slice(0,5).map(u=>(
+                  <div key={u} title={u} style={{width:22,height:22,borderRadius:"50%",background:avatarColor(u),display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"white",border:"1.5px solid #232D4B",marginLeft:-4}}>
+                    {initials(u)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {saving && <span style={{fontSize:11,color:"#E57200",fontStyle:"italic"}}>Saving…</span>}
+          {syncErr && <span style={{fontSize:11,color:"#ef4444",fontStyle:"italic"}}>⚠ Sync error</span>}
+
+          <button onClick={()=>setAddOpen(true)}
+            style={{background:"#E57200",color:"white",border:"none",borderRadius:7,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+            + Add Project
+          </button>
+          <div style={{background:"rgba(255,255,255,0.12)",color:"white",fontSize:12,padding:"6px 14px",borderRadius:20,display:"flex",alignItems:"center",gap:6}}>
+            <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:22,height:22,borderRadius:"50%",background:avatarColor(user),fontSize:10,fontWeight:700}}>
+              {initials(user)}
+            </span>
+            {user}
+          </div>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div style={{display:"flex",gap:10,padding:"16px 24px 12px",flexWrap:"wrap"}}>
+        {[
+          {label:"Total",       value:ct.total, color:"#232D4B", key:"All"},
+          {label:"Not Started", value:ct.ns,    color:"#ef4444", key:"Not Started"},
+          {label:"In Progress", value:ct.ip,    color:"#f59e0b", key:"In Progress"},
+          {label:"On Hold",     value:ct.oh,    color:"#8b5cf6", key:"On Hold"},
+          {label:"Complete",    value:ct.done,  color:"#22c55e", key:"Complete"},
+        ].map(c=>(
+          <div key={c.key} onClick={()=>setFStat(fStat===c.key?"All":c.key)}
+            style={{flex:"1 1 110px",background:"white",borderRadius:10,padding:"11px 14px",cursor:"pointer",
+              borderTop:`3px solid ${c.color}`,
+              boxShadow:fStat===c.key?`0 0 0 2px ${c.color},0 2px 8px rgba(0,0,0,0.1)`:"0 1px 3px rgba(0,0,0,0.07)",
+              transition:"box-shadow 0.15s"}}>
+            <div style={{fontSize:28,fontWeight:800,color:c.color,lineHeight:1}}>{c.value}</div>
+            <div style={{fontSize:11,color:"#64748b",marginTop:4,fontWeight:500}}>{c.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div style={{display:"flex",gap:8,padding:"0 24px 12px",flexWrap:"wrap",alignItems:"center"}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍  Search projects…"
+          style={{...inp({flex:"1 1 180px",width:"auto"})}} />
+        {[
+          {label:"Director",  val:fDir,  set:setFDir,  opts:dirs},
+          {label:"Specialist",val:fSpec, set:setFSpec, opts:specs},
+          {label:"Division",  val:fDiv,  set:setFDiv,  opts:divs},
+        ].map(f=>(
+          <select key={f.label} value={f.val} onChange={e=>f.set(e.target.value)}
+            style={{padding:"9px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,background:"white",outline:"none",cursor:"pointer"}}>
+            <option value="All">{f.label}: All</option>
+            {f.opts.filter(o=>o!=="All").map(o=><option key={o} value={o}>{o}</option>)}
+          </select>
+        ))}
+        {hasFilter && (
+          <button onClick={()=>{setSearch("");setFDir("All");setFSpec("All");setFDiv("All");setFStat("All");}}
+            style={{padding:"9px 14px",border:"1.5px solid #e2e8f0",borderRadius:8,background:"white",fontSize:12,cursor:"pointer",color:"#64748b"}}>
+            ✕ Clear
+          </button>
+        )}
+        <span style={{fontSize:12,color:"#94a3b8",marginLeft:"auto"}}>{visible.length} of {projects.length} projects</span>
+      </div>
+
+      {/* Project rows */}
+      <div style={{padding:"0 24px 40px",display:"flex",flexDirection:"column",gap:8}}>
+        {visible.length===0 && (
+          <div style={{textAlign:"center",padding:60,color:"#94a3b8",background:"white",borderRadius:10,fontSize:14}}>
+            No projects match your filters.
+          </div>
+        )}
+        {visible.map(p => {
+          const col = pColor(p.progress);
+          const isExp = expanded === p.id;
+          const pri = p.priority==="High" ? {bg:"#fee2e2",txt:"#dc2626"} :
+                      p.priority==="Low"  ? {bg:"#dcfce7",txt:"#16a34a"} :
+                                            {bg:"#fef3c7",txt:"#d97706"};
+          const sc = statColors[p.status]||"#94a3b8";
+          const commentCount = (p.comments||[]).length;
+
+          return (
+            <div key={p.id} style={{background:"white",borderRadius:10,border:"1px solid #e2e8f0",boxShadow:"0 1px 3px rgba(0,0,0,0.05)",overflow:"hidden"}}>
+
+              {/* Summary row */}
+              <div style={{padding:"12px 16px",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+                <div style={{flex:"1 1 200px",minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:13.5,color:"#1e293b",lineHeight:1.3}}>{p.program}</div>
+                  <div style={{fontSize:11.5,color:"#94a3b8",marginTop:3}}>
+                    <span style={{marginRight:10}}>👔 {p.director}</span>
+                    <span>📂 {p.division}</span>
+                  </div>
+                </div>
+                <div style={{fontSize:11,background:"#f8fafc",border:"1px solid #e2e8f0",padding:"3px 9px",borderRadius:20,color:"#475569",whiteSpace:"nowrap"}}>
+                  👤 {p.specialist}
+                </div>
+                <div style={{fontSize:11,padding:"3px 9px",borderRadius:20,fontWeight:700,background:pri.bg,color:pri.txt,whiteSpace:"nowrap"}}>
+                  {p.priority}
+                </div>
+                <select value={p.status} onChange={e=>upStat(p.id,e.target.value)}
+                  style={{fontSize:12,padding:"4px 8px",border:`1.5px solid ${sc}`,borderRadius:6,color:sc,fontWeight:700,outline:"none",cursor:"pointer",background:"white",whiteSpace:"nowrap"}}>
+                  {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+                </select>
+                <div style={{flex:"0 0 230px",display:"flex",flexDirection:"column",gap:4}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <input type="range" min={0} max={100} value={p.progress}
+                      onChange={e=>upProg(p.id,Number(e.target.value))}
+                      style={{flex:1,accentColor:col,cursor:"pointer"}} />
+                    <span style={{fontSize:13,fontWeight:800,color:col,minWidth:34,textAlign:"right"}}>{p.progress}%</span>
+                  </div>
+                  <div style={{height:7,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${p.progress}%`,background:`linear-gradient(90deg,${pColor(Math.max(0,p.progress-10))},${col})`,borderRadius:4,transition:"width 0.35s,background 0.35s"}} />
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>setExpanded(isExp?null:p.id)}
+                    style={{height:30,padding:"0 10px",border:"1px solid #e2e8f0",borderRadius:6,background:isExp?"#f1f5f9":"white",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",gap:5,color:"#475569",whiteSpace:"nowrap"}}>
+                    {isExp?"▲":"▼"}
+                    {commentCount > 0 && (
+                      <span style={{background:"#232D4B",color:"white",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:700}}>{commentCount}</span>
+                    )}
+                  </button>
+                  <button onClick={()=>{setEditing(p.id);setEf({...p});}}
+                    style={{width:30,height:30,border:"1px solid #e2e8f0",borderRadius:6,background:"white",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    ✏️
+                  </button>
+                </div>
+              </div>
+
+              {/* Expanded panel */}
+              {isExp && (
+                <div style={{borderTop:"1px solid #f1f5f9",background:"#fafbfc"}}>
+                  <div style={{padding:"14px 18px 12px",borderBottom:"1px solid #f1f5f9"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>Project Notes</div>
+                    <div style={{fontSize:13,color:"#334155",lineHeight:1.75}}>
+                      {p.notes || <em style={{color:"#cbd5e1"}}>No notes added.</em>}
+                    </div>
+                    {p.by && (
+                      <div style={{marginTop:8,fontSize:11,color:"#cbd5e1"}}>
+                        ✏️ Last updated by <strong style={{color:"#94a3b8"}}>{p.by}</strong> on {fmtDate(p.when)}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Comments */}
+                  <div style={{padding:"14px 18px 16px"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:12}}>
+                      Comments {commentCount > 0 && `(${commentCount})`}
+                    </div>
+                    {(p.comments||[]).length === 0 && (
+                      <div style={{fontSize:13,color:"#cbd5e1",marginBottom:14,fontStyle:"italic"}}>No comments yet — be the first to add one.</div>
+                    )}
+                    <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+                      {(p.comments||[]).map(c=>(
+                        <div key={c.id} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                          <div style={{width:30,height:30,borderRadius:"50%",background:avatarColor(c.by),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"white",flexShrink:0}}>
+                            {initials(c.by)}
+                          </div>
+                          <div style={{flex:1,background:"white",border:"1px solid #e2e8f0",borderRadius:"0 10px 10px 10px",padding:"9px 12px",boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                              <span style={{fontSize:12,fontWeight:700,color:"#232D4B"}}>{c.by}</span>
+                              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                <span style={{fontSize:11,color:"#94a3b8"}}>{fmtTime(c.when)}</span>
+                                {c.by === user && (
+                                  <button onClick={()=>deleteComment(p.id,c.id)}
+                                    style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:13,padding:0,lineHeight:1}}
+                                    title="Delete comment">✕</button>
+                                )}
+                              </div>
+                            </div>
+                            <div style={{fontSize:13,color:"#334155",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{c.text}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
+                      <div style={{width:30,height:30,borderRadius:"50%",background:avatarColor(user),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"white",flexShrink:0,marginBottom:1}}>
+                        {initials(user)}
+                      </div>
+                      <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
+                        <textarea
+                          value={commentDrafts[p.id]||""}
+                          onChange={e=>setCommentDrafts(d=>({...d,[p.id]:e.target.value}))}
+                          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();postComment(p.id);}}}
+                          placeholder="Add a comment… (Enter to post, Shift+Enter for new line)"
+                          rows={2}
+                          style={{width:"100%",padding:"9px 11px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,resize:"none",outline:"none",fontFamily:"inherit",lineHeight:1.5}} />
+                        <button onClick={()=>postComment(p.id)}
+                          disabled={!(commentDrafts[p.id]||"").trim()}
+                          style={{alignSelf:"flex-end",
+                            background:(commentDrafts[p.id]||"").trim()?"#232D4B":"#e2e8f0",
+                            color:(commentDrafts[p.id]||"").trim()?"white":"#94a3b8",
+                            border:"none",borderRadius:7,padding:"7px 16px",fontSize:12,fontWeight:700,
+                            cursor:(commentDrafts[p.id]||"").trim()?"pointer":"default",transition:"background 0.15s"}}>
+                          Post Comment
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Edit Modal */}
+      {editing && (
+        <Modal title="Edit Project" onClose={()=>setEditing(null)} onSave={saveEdit} saveLabel="Save Changes">
+          {[{label:"Program / Project",key:"program"},{label:"Director",key:"director"},{label:"Division / Service Line",key:"division"},{label:"PH Specialist",key:"specialist"}].map(f=>(
+            <Field key={f.key} label={f.label}>
+              <input value={ef[f.key]||""} onChange={e=>setEf({...ef,[f.key]:e.target.value})} style={inp()} />
+            </Field>
+          ))}
+          <Field label="Priority">
+            <select value={ef.priority||"Medium"} onChange={e=>setEf({...ef,priority:e.target.value})} style={inp()}>
+              {PRIORITIES.map(o=><option key={o}>{o}</option>)}
+            </select>
+          </Field>
+          <Field label="Notes">
+            <textarea value={ef.notes||""} onChange={e=>setEf({...ef,notes:e.target.value})} rows={5} style={inp({resize:"vertical"})} />
+          </Field>
+        </Modal>
+      )}
+
+      {/* Add Modal */}
+      {addOpen && (
+        <Modal title="Add New Project" onClose={()=>setAddOpen(false)} onSave={addProject} saveLabel="Add Project">
+          {[{label:"Program / Project",key:"program"},{label:"Director",key:"director"},{label:"Division / Service Line",key:"division"},{label:"PH Specialist",key:"specialist"}].map(f=>(
+            <Field key={f.key} label={f.label}>
+              <input value={newP[f.key]||""} onChange={e=>setNewP({...newP,[f.key]:e.target.value})} style={inp()} />
+            </Field>
+          ))}
+          <Field label="Priority">
+            <select value={newP.priority||"Medium"} onChange={e=>setNewP({...newP,priority:e.target.value})} style={inp()}>
+              {PRIORITIES.map(o=><option key={o}>{o}</option>)}
+            </select>
+          </Field>
+          <Field label="Notes">
+            <textarea value={newP.notes||""} onChange={e=>setNewP({...newP,notes:e.target.value})} rows={4} style={inp({resize:"vertical"})} />
+          </Field>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
