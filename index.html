@@ -54,7 +54,7 @@ const INIT_PROJECTS = [
   { id:16, program:"Project Management Support",               director:"Robert",         division:"Department Wide",                  specialist:"All",         progress:0, status:"Not Started", priority:"High",   notes:"This happens all over the place in a variety of divisions. Need to establish a process or tool to track current and future projects. Robert will lead this effort to systemize the project intake process working closely with the PH Specialists, Directors, and Vickie.", by:"", when:"", comments:[] },
 ];
 
-const STATUSES  = ["Not Started","In Progress","On Hold","Complete"];
+const STATUSES  = ["Not Started","In Progress","Ongoing","On Hold","Complete"];
 const PRIORITIES = ["High","Medium","Low"];
 
 const PH_SKILLS = [
@@ -134,7 +134,7 @@ function avatarColor(name) {
   let h = 0; for (let c of name) h = (h * 31 + c.charCodeAt(0)) % colors.length;
   return colors[h];
 }
-const statColors = {"Not Started":"#94a3b8","In Progress":"#f59e0b","On Hold":"#8b5cf6","Complete":"#22c55e"};
+const statColors = {"Not Started":"#94a3b8","In Progress":"#f59e0b","Ongoing":"#0369a1","On Hold":"#8b5cf6","Complete":"#22c55e"};
 
 // ── DB ────────────────────────────────────────────────────────────────────
 async function dbLoadProjects() {
@@ -549,6 +549,8 @@ function TrackerView({ user }) {
   const [addOpen, setAddOpen]           = useState(false);
   const [newP, setNewP]                 = useState({program:"",director:"",division:"",specialist:"",priority:"Medium",notes:""});
   const [commentDrafts, setCommentDrafts] = useState({});
+  const dragItem = useRef(null);
+  const dragOver = useRef(null);
 
   const inp = (s={}) => ({padding:"9px 11px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",...s});
 
@@ -577,6 +579,32 @@ function TrackerView({ user }) {
   }
 
   function stamp(p, extra) { return {...p,...extra,by:user,when:new Date().toISOString()}; }
+
+  function handleDragStart(e, index) {
+    dragItem.current = index;
+    e.dataTransfer.effectAllowed = "move";
+  }
+  function handleDragEnter(e, index) {
+    dragOver.current = index;
+  }
+  function handleDragEnd() {
+    // Reorder projects array based on drag
+    const allProjects = [...projects];
+    // Find the actual project indices in the full array
+    const draggedProject = visible[dragItem.current];
+    const targetProject  = visible[dragOver.current];
+    if (!draggedProject || !targetProject || draggedProject.id === targetProject.id) {
+      dragItem.current = null; dragOver.current = null; return;
+    }
+    const fromIdx = allProjects.findIndex(p => p.id === draggedProject.id);
+    const toIdx   = allProjects.findIndex(p => p.id === targetProject.id);
+    const reordered = [...allProjects];
+    reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, draggedProject);
+    persist(reordered);
+    dragItem.current = null;
+    dragOver.current = null;
+  }
   function upProg(id,pct) { persist(projects.map(p=>p.id!==id?p:stamp(p,{progress:pct,status:pct===100?"Complete":pct===0?"Not Started":p.status==="Not Started"?"In Progress":p.status}))); }
   function upStat(id,status) { persist(projects.map(p=>p.id!==id?p:stamp(p,{status,progress:status==="Complete"?100:status==="Not Started"?0:p.progress}))); }
   function saveEdit() { persist(projects.map(p=>p.id===editing?{...ef,by:user,when:new Date().toISOString()}:p)); setEditing(null); }
@@ -594,7 +622,7 @@ function TrackerView({ user }) {
     (!search||[p.program,p.director,p.specialist,p.notes,p.division].some(v=>v.toLowerCase().includes(search.toLowerCase())))
   );
 
-  const ct = { total:projects.length, ns:projects.filter(p=>p.status==="Not Started").length, ip:projects.filter(p=>p.status==="In Progress").length, oh:projects.filter(p=>p.status==="On Hold").length, done:projects.filter(p=>p.status==="Complete").length };
+  const ct = { total:projects.length, ns:projects.filter(p=>p.status==="Not Started").length, ip:projects.filter(p=>p.status==="In Progress").length, og:projects.filter(p=>p.status==="Ongoing").length, oh:projects.filter(p=>p.status==="On Hold").length, done:projects.filter(p=>p.status==="Complete").length };
   const hasFilter = search||fDir!=="All"||fSpec!=="All"||fDiv!=="All"||fStat!=="All";
 
   if (!loaded) return <div style={{padding:60,textAlign:"center",color:"#64748b",fontSize:14}}>Loading projects…</div>;
@@ -603,7 +631,7 @@ function TrackerView({ user }) {
     <div>
       {/* Stats */}
       <div style={{display:"flex",gap:10,padding:"16px 24px 12px",flexWrap:"wrap"}}>
-        {[{label:"Total",value:ct.total,color:"#232D4B",key:"All"},{label:"Not Started",value:ct.ns,color:"#ef4444",key:"Not Started"},{label:"In Progress",value:ct.ip,color:"#f59e0b",key:"In Progress"},{label:"On Hold",value:ct.oh,color:"#8b5cf6",key:"On Hold"},{label:"Complete",value:ct.done,color:"#22c55e",key:"Complete"}].map(c=>(
+        {[{label:"Total",value:ct.total,color:"#232D4B",key:"All"},{label:"Not Started",value:ct.ns,color:"#ef4444",key:"Not Started"},{label:"In Progress",value:ct.ip,color:"#f59e0b",key:"In Progress"},{label:"Ongoing",value:ct.og,color:"#0369a1",key:"Ongoing"},{label:"On Hold",value:ct.oh,color:"#8b5cf6",key:"On Hold"},{label:"Complete",value:ct.done,color:"#22c55e",key:"Complete"}].map(c=>(
           <div key={c.key} onClick={()=>setFStat(fStat===c.key?"All":c.key)}
             style={{flex:"1 1 110px",background:"white",borderRadius:10,padding:"11px 14px",cursor:"pointer",borderTop:`3px solid ${c.color}`,boxShadow:fStat===c.key?`0 0 0 2px ${c.color},0 2px 8px rgba(0,0,0,0.1)`:"0 1px 3px rgba(0,0,0,0.07)",transition:"box-shadow 0.15s"}}>
             <div style={{fontSize:28,fontWeight:800,color:c.color,lineHeight:1}}>{c.value}</div>
@@ -634,13 +662,20 @@ function TrackerView({ user }) {
       {/* Rows */}
       <div style={{padding:"0 24px 40px",display:"flex",flexDirection:"column",gap:8}}>
         {visible.length===0 && <div style={{textAlign:"center",padding:60,color:"#94a3b8",background:"white",borderRadius:10,fontSize:14}}>No projects match your filters.</div>}
-        {visible.map(p=>{
+        {visible.map((p,visIdx)=>{
           const col=pColor(p.progress); const isExp=expanded===p.id;
           const pri=p.priority==="High"?{bg:"#fee2e2",txt:"#dc2626"}:p.priority==="Low"?{bg:"#dcfce7",txt:"#16a34a"}:{bg:"#fef3c7",txt:"#d97706"};
           const sc=statColors[p.status]||"#94a3b8"; const commentCount=(p.comments||[]).length;
           return (
-            <div key={p.id} style={{background:"white",borderRadius:10,border:"1px solid #e2e8f0",boxShadow:"0 1px 3px rgba(0,0,0,0.05)",overflow:"hidden"}}>
+            <div key={p.id}
+              draggable
+              onDragStart={e=>handleDragStart(e,visIdx)}
+              onDragEnter={e=>handleDragEnter(e,visIdx)}
+              onDragEnd={handleDragEnd}
+              onDragOver={e=>e.preventDefault()}
+              style={{background:"white",borderRadius:10,border:"1px solid #e2e8f0",boxShadow:"0 1px 3px rgba(0,0,0,0.05)",overflow:"hidden",cursor:"grab"}}>
               <div style={{padding:"12px 16px",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+                <div title="Drag to reorder" style={{color:"#cbd5e1",fontSize:16,cursor:"grab",flexShrink:0,userSelect:"none",lineHeight:1}}>⠿</div>
                 <div style={{flex:"1 1 200px",minWidth:0}}>
                   <div style={{fontWeight:700,fontSize:13.5,color:"#1e293b",lineHeight:1.3}}>{p.program}</div>
                   <div style={{fontSize:11.5,color:"#94a3b8",marginTop:3}}><span style={{marginRight:10}}>👔 {p.director}</span><span>📂 {p.division}</span></div>
