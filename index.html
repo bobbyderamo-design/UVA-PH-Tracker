@@ -17,21 +17,25 @@
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: #f1f5f9; }
   ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  .tab-btn { padding: 10px 20px; border: none; background: none; cursor: pointer; font-size: 13px; font-weight: 600; color: #64748b; border-bottom: 3px solid transparent; transition: all 0.15s; font-family: inherit; }
+  .tab-btn.active { color: #232D4B; border-bottom-color: #E57200; }
+  .tab-btn:hover:not(.active) { color: #232D4B; }
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
 
-// ── Supabase config ───────────────────────────────────────────────────────
 const SUPABASE_URL  = "https://xllxvznunqxkodwhqiba.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsbHh2em51bnF4a29kd2hxaWJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzMjIyNDIsImV4cCI6MjA5NTg5ODI0Mn0.5_vaEd0zjtM4EvGTrKMkncZw9iD-BYhXdkVi8mvAy4I";
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
 const { useState, useEffect, useCallback, useRef } = React;
 
-// ── Seed data ─────────────────────────────────────────────────────────────
-const INIT = [
+// ── Constants ─────────────────────────────────────────────────────────────
+const TRACKER_ROW_ID = 1;
+
+const INIT_PROJECTS = [
   { id:1,  program:"Cell Phone Program",                        director:"Jared",          division:"Department Wide",                  specialist:"Amy",         progress:0, status:"Not Started", priority:"Medium", notes:"This program uses philanthropic dollars and includes managing Verizon and prepaid cellphones to provide patients with a no cost phone. It requires managing the MDM on the Verizon dashboard as well as procuring prepaid phones from Walmart. Coordinating with the HCS Med Students and working with other PH team members to distribute phones and manage eligibility.", by:"", when:"", comments:[] },
   { id:2,  program:"Event Planning (Internal)",                  director:"All",            division:"Department Wide",                  specialist:"Amy",         progress:0, status:"Not Started", priority:"Low",    notes:"Event planning involving department wide gatherings including location, catering, logistics, etc. (i.e., Socktober, Health Week Events)", by:"", when:"", comments:[] },
   { id:3,  program:"Joint Commission Readiness",                 director:"Catherine",      division:"Department Wide",                  specialist:"Amy",         progress:0, status:"Not Started", priority:"High",   notes:"TJC Project Management Support", by:"", when:"", comments:[] },
@@ -52,7 +56,57 @@ const INIT = [
 
 const STATUSES  = ["Not Started","In Progress","On Hold","Complete"];
 const PRIORITIES = ["High","Medium","Low"];
-const DB_ROW_ID  = 1; // We store the entire projects array as one JSON row
+
+const PH_SKILLS = [
+  "Clinical Program Design",
+  "Data Analysis & Reporting",
+  "Care Coordination",
+  "Stakeholder Facilitation",
+  "Regulatory Compliance",
+  "Community Outreach",
+  "Quality Improvement",
+  "Other"
+];
+
+const ADMIN_TASKS = [
+  "Scheduling / Calendar Management",
+  "Filing / Document Management",
+  "Phone Calls / Message Routing",
+  "Data Entry",
+  "Printing / Copying",
+  "Logistics Coordination"
+];
+
+const CLINICAL_TASKS = [
+  "Clinical Program Design",
+  "Patient Risk Stratification",
+  "Care Pathway Development",
+  "Community Health Assessment",
+  "Grant Writing / Management",
+  "Quality Improvement Initiative",
+  "Regulatory / Compliance Work",
+  "Interagency / Stakeholder Facilitation",
+  "Data Analysis & Population Insights",
+  "Staff Education & Training"
+];
+
+// ── Scoring ───────────────────────────────────────────────────────────────
+function scoreSubmission(data) {
+  let score = 0;
+  if ((data.phObjective || "").trim().length > 40) score += 2;
+  const nonAdminSkills = (data.specialistSkills || []).filter(s => !ADMIN_TASKS.includes(s));
+  if (nonAdminSkills.length > 0) score += 2;
+  if ((data.patientImpact || "").trim().length > 30) score += 1;
+  if (data.startDate && data.endDate) score += 1;
+  const hasAdminOnly = (data.tasks || []).length > 0 &&
+    (data.tasks || []).every(t => ADMIN_TASKS.includes(t));
+  if (hasAdminOnly) score -= 2;
+  if (!(data.adminJustification || "").trim() && hasAdminOnly) score -= 1;
+  score = Math.max(0, score);
+  if (score <= 2) return { score, label: "Not Ready", color: "#ef4444", bg: "#fee2e2" };
+  if (score <= 4) return { score, label: "Needs Clarification", color: "#f59e0b", bg: "#fef3c7" };
+  return { score, label: "Ready for Review", color: "#22c55e", bg: "#dcfce7" };
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function pColor(pct) {
@@ -82,20 +136,31 @@ function avatarColor(name) {
 }
 const statColors = {"Not Started":"#94a3b8","In Progress":"#f59e0b","On Hold":"#8b5cf6","Complete":"#22c55e"};
 
-// ── Supabase read/write ───────────────────────────────────────────────────
-async function dbLoad() {
-  const { data, error } = await sb.from("projects").select("data").eq("id", DB_ROW_ID).single();
+// ── DB ────────────────────────────────────────────────────────────────────
+async function dbLoadProjects() {
+  const { data, error } = await sb.from("projects").select("data").eq("id", TRACKER_ROW_ID).single();
   if (error || !data) return null;
   return data.data.map(p => ({...p, comments: p.comments||[]}));
 }
-
-async function dbSave(projects) {
-  const { error } = await sb.from("projects")
-    .upsert({ id: DB_ROW_ID, data: projects, updated_at: new Date().toISOString() });
-  if (error) console.error("Save error:", error);
+async function dbSaveProjects(projects) {
+  await sb.from("projects").upsert({ id: TRACKER_ROW_ID, data: projects, updated_at: new Date().toISOString() });
+}
+async function dbLoadSubmissions() {
+  const { data, error } = await sb.from("intake_submissions").select("*").order("submitted_at", { ascending: false });
+  if (error || !data) return [];
+  return data;
+}
+async function dbSaveSubmission(formData) {
+  const readiness = scoreSubmission(formData);
+  const { data, error } = await sb.from("intake_submissions").insert([{
+    data: { ...formData, readiness },
+    submitted_at: new Date().toISOString()
+  }]).select().single();
+  if (error) throw error;
+  return data;
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────
+// ── Shared components ─────────────────────────────────────────────────────
 function Modal({title, onClose, onSave, saveLabel, children}) {
   const inp = (s={}) => ({padding:"9px 11px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",...s});
   return (
@@ -115,22 +180,363 @@ function Modal({title, onClose, onSave, saveLabel, children}) {
   );
 }
 
-function Field({label, children}) {
+function Field({label, required, children, hint}) {
   return (
-    <div style={{marginBottom:14}}>
-      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#64748b",marginBottom:5,letterSpacing:"0.06em",textTransform:"uppercase"}}>{label}</label>
+    <div style={{marginBottom:18}}>
+      <label style={{display:"block",fontSize:11,fontWeight:700,color:"#64748b",marginBottom:5,letterSpacing:"0.06em",textTransform:"uppercase"}}>
+        {label}{required && <span style={{color:"#ef4444",marginLeft:3}}>*</span>}
+      </label>
+      {hint && <div style={{fontSize:12,color:"#94a3b8",marginBottom:6}}>{hint}</div>}
       {children}
     </div>
   );
 }
 
-// ── Main App ──────────────────────────────────────────────────────────────
-function App() {
+// ── INTAKE FORM ───────────────────────────────────────────────────────────
+function IntakeForm({ onSubmitted }) {
+  const EMPTY = {
+    projectName:"", submittingDirector:"", division:"", startDate:"", endDate:"",
+    weeklyHours:"", phObjective:"", specialistSkills:[], tasks:[], adminJustification:"",
+    patientImpact:"", accountableDirector:"", hasMilestone:""
+  };
+  const [form, setForm] = useState(EMPTY);
+  const [errors, setErrors] = useState({});
+  const [adminWarning, setAdminWarning] = useState(false);
+  const [objectiveWarning, setObjectiveWarning] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const inp = (s={}) => ({padding:"9px 11px",border:`1.5px solid ${s.err?"#ef4444":"#e2e8f0"}`,borderRadius:8,fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",...s,err:undefined});
+
+  function setField(key, val) { setForm(f => ({...f, [key]: val})); }
+
+  function toggleArr(key, val) {
+    setForm(f => ({
+      ...f,
+      [key]: f[key].includes(val) ? f[key].filter(x=>x!==val) : [...f[key], val]
+    }));
+  }
+
+  useEffect(() => {
+    const tasks = form.tasks;
+    if (tasks.length > 0 && tasks.every(t => ADMIN_TASKS.includes(t))) {
+      setAdminWarning(true);
+    } else {
+      setAdminWarning(false);
+    }
+  }, [form.tasks]);
+
+  function validate() {
+    const e = {};
+    if (!form.projectName.trim()) e.projectName = true;
+    if (!form.submittingDirector.trim()) e.submittingDirector = true;
+    if (!form.phObjective.trim()) e.phObjective = true;
+    if (form.phObjective.trim().length < 20) e.phObjective = true;
+    if (form.specialistSkills.length === 0) e.specialistSkills = true;
+    if (!form.patientImpact.trim()) e.patientImpact = true;
+    if (!form.accountableDirector.trim()) e.accountableDirector = true;
+    if (!form.weeklyHours) e.weeklyHours = true;
+    setErrors(e);
+    if (e.phObjective) setObjectiveWarning(true);
+    return Object.keys(e).length === 0;
+  }
+
+  async function handleSubmit() {
+    if (!validate()) return;
+    setSubmitting(true);
+    try {
+      await dbSaveSubmission(form);
+      setSubmitted(true);
+    } catch(e) {
+      console.error(e);
+      alert("Submission failed. Please try again.");
+    }
+    setSubmitting(false);
+  }
+
+  if (submitted) return (
+    <div style={{maxWidth:640,margin:"60px auto",background:"white",borderRadius:16,padding:48,textAlign:"center",boxShadow:"0 4px 24px rgba(0,0,0,0.08)"}}>
+      <div style={{fontSize:48,marginBottom:16}}>✅</div>
+      <h2 style={{color:"#232D4B",fontSize:22,fontWeight:800,marginBottom:12}}>Request Submitted</h2>
+      <p style={{color:"#64748b",fontSize:14,lineHeight:1.7,maxWidth:440,margin:"0 auto 28px"}}>
+        Thank you for submitting your PH Specialist request. Your submission has been received and will be reviewed by Bobby D'Eramo and the PH Specialist team. You will be contacted if additional information is needed.
+      </p>
+      <button onClick={()=>setSubmitted(false)}
+        style={{background:"#232D4B",color:"white",border:"none",borderRadius:8,padding:"11px 28px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+        Submit Another Request
+      </button>
+    </div>
+  );
+
+  return (
+    <div style={{maxWidth:720,margin:"0 auto",padding:"32px 24px 60px"}}>
+      {/* Form header */}
+      <div style={{background:"white",borderRadius:14,padding:28,marginBottom:20,boxShadow:"0 1px 4px rgba(0,0,0,0.07)",borderLeft:"4px solid #E57200"}}>
+        <h2 style={{color:"#232D4B",fontSize:20,fontWeight:800,marginBottom:6}}>PH Specialist Support Request</h2>
+        <p style={{color:"#64748b",fontSize:13,lineHeight:1.6}}>
+          Use this form to request Population Health Specialist involvement on a project or initiative. Fields marked with <span style={{color:"#ef4444"}}>*</span> are required. Submissions are reviewed by the PH Director and Specialist team.
+        </p>
+      </div>
+
+      {/* Section 1 */}
+      <FormSection title="1. Project Identity">
+        <Field label="Project / Initiative Name" required>
+          <input value={form.projectName} onChange={e=>setField("projectName",e.target.value)}
+            style={inp({err:errors.projectName})} placeholder="e.g., RPM Expansion – CHF Population" />
+          {errors.projectName && <div style={{fontSize:11,color:"#ef4444",marginTop:4}}>Required.</div>}
+        </Field>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+          <Field label="Submitting Director" required>
+            <input value={form.submittingDirector} onChange={e=>setField("submittingDirector",e.target.value)}
+              style={inp({err:errors.submittingDirector})} placeholder="Your name" />
+            {errors.submittingDirector && <div style={{fontSize:11,color:"#ef4444",marginTop:4}}>Required.</div>}
+          </Field>
+          <Field label="Division / Service Line">
+            <input value={form.division} onChange={e=>setField("division",e.target.value)}
+              style={inp()} placeholder="e.g., Transitions & Post-Acute Care" />
+          </Field>
+          <Field label="Proposed Start Date">
+            <input type="date" value={form.startDate} onChange={e=>setField("startDate",e.target.value)} style={inp()} />
+          </Field>
+          <Field label="Proposed End Date / Milestone">
+            <input type="date" value={form.endDate} onChange={e=>setField("endDate",e.target.value)} style={inp()} />
+          </Field>
+        </div>
+        <Field label="Estimated Weekly Time Commitment from Specialist" required hint="Approximate hours per week">
+          <select value={form.weeklyHours} onChange={e=>setField("weeklyHours",e.target.value)} style={inp({err:errors.weeklyHours})}>
+            <option value="">Select…</option>
+            {["< 1 hour","1–2 hours","3–5 hours","5–10 hours","10+ hours"].map(o=><option key={o}>{o}</option>)}
+          </select>
+          {errors.weeklyHours && <div style={{fontSize:11,color:"#ef4444",marginTop:4}}>Required.</div>}
+        </Field>
+      </FormSection>
+
+      {/* Section 2 */}
+      <FormSection title="2. Clinical & Population Health Justification">
+        <Field label="Clinical or Population Health Objective" required
+          hint="Describe the specific clinical or population health goal this project advances. Vague or purely operational descriptions will be flagged.">
+          <textarea value={form.phObjective} onChange={e=>{setField("phObjective",e.target.value);setObjectiveWarning(false);}}
+            rows={4} style={inp({resize:"vertical",err:errors.phObjective})}
+            placeholder="e.g., Reduce 30-day hospital readmissions for CHF patients by implementing a remote monitoring protocol that identifies decompensation early..." />
+          {objectiveWarning && (
+            <div style={{marginTop:8,padding:"10px 14px",background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:8,fontSize:12,color:"#92400e"}}>
+              ⚠ <strong>A clear clinical or population health objective is required</strong> to request PH Specialist support. Please describe the patient or community health goal in more detail.
+            </div>
+          )}
+          {errors.phObjective && !objectiveWarning && <div style={{fontSize:11,color:"#ef4444",marginTop:4}}>Please provide a meaningful clinical objective (at least 20 characters).</div>}
+        </Field>
+      </FormSection>
+
+      {/* Section 3 */}
+      <FormSection title="3. PH Specialist Skills Required">
+        <Field label="Select all specialist competencies this project requires" required>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            {PH_SKILLS.map(skill=>(
+              <label key={skill} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",border:`1.5px solid ${form.specialistSkills.includes(skill)?"#232D4B":"#e2e8f0"}`,borderRadius:8,cursor:"pointer",fontSize:13,background:form.specialistSkills.includes(skill)?"#f0f4ff":"white",transition:"all 0.1s"}}>
+                <input type="checkbox" checked={form.specialistSkills.includes(skill)} onChange={()=>toggleArr("specialistSkills",skill)} style={{accentColor:"#232D4B"}} />
+                {skill}
+              </label>
+            ))}
+          </div>
+          {errors.specialistSkills && <div style={{fontSize:11,color:"#ef4444",marginTop:6}}>Please select at least one specialist skill.</div>}
+        </Field>
+      </FormSection>
+
+      {/* Section 4 */}
+      <FormSection title="4. Tasks & Administrative Screen">
+        <Field label="Select all tasks the specialist will be performing" hint="Check everything that applies — clinical and administrative.">
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:8}}>Clinical / Program Tasks</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {CLINICAL_TASKS.map(task=>(
+                <label key={task} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",border:`1.5px solid ${form.tasks.includes(task)?"#059669":"#e2e8f0"}`,borderRadius:8,cursor:"pointer",fontSize:13,background:form.tasks.includes(task)?"#f0fdf4":"white",transition:"all 0.1s"}}>
+                  <input type="checkbox" checked={form.tasks.includes(task)} onChange={()=>toggleArr("tasks",task)} style={{accentColor:"#059669"}} />
+                  {task}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:8}}>Administrative Tasks</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {ADMIN_TASKS.map(task=>(
+                <label key={task} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",border:`1.5px solid ${form.tasks.includes(task)?"#f59e0b":"#e2e8f0"}`,borderRadius:8,cursor:"pointer",fontSize:13,background:form.tasks.includes(task)?"#fffbeb":"white",transition:"all 0.1s"}}>
+                  <input type="checkbox" checked={form.tasks.includes(task)} onChange={()=>toggleArr("tasks",task)} style={{accentColor:"#f59e0b"}} />
+                  {task}
+                </label>
+              ))}
+            </div>
+          </div>
+        </Field>
+
+        {adminWarning && (
+          <div style={{padding:"14px 16px",background:"#fff7ed",border:"1.5px solid #fed7aa",borderRadius:10,marginTop:4,marginBottom:4}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#9a3412",marginBottom:6}}>⚠ Administrative Task Concern</div>
+            <div style={{fontSize:13,color:"#7c2d12",lineHeight:1.65}}>
+              The tasks described may be better suited for an <strong>administrative specialist or other personnel, but not a PH Specialist</strong>. If a PH Specialist is still required, please explain why below.
+            </div>
+            <div style={{marginTop:12}}>
+              <label style={{display:"block",fontSize:11,fontWeight:700,color:"#9a3412",marginBottom:5,letterSpacing:"0.06em",textTransform:"uppercase"}}>Why is a PH Specialist still needed? *</label>
+              <textarea value={form.adminJustification} onChange={e=>setField("adminJustification",e.target.value)}
+                rows={3} style={{width:"100%",padding:"9px 11px",border:"1.5px solid #fed7aa",borderRadius:8,fontSize:13,resize:"vertical",outline:"none",fontFamily:"inherit"}}
+                placeholder="Explain the specific PH expertise required despite the administrative nature of these tasks…" />
+            </div>
+          </div>
+        )}
+      </FormSection>
+
+      {/* Section 5 */}
+      <FormSection title="5. Impact & Accountability">
+        <Field label="Expected Patient or Community Impact" required
+          hint="Describe measurable or observable outcomes. Who benefits and how?">
+          <textarea value={form.patientImpact} onChange={e=>setField("patientImpact",e.target.value)}
+            rows={3} style={inp({resize:"vertical",err:errors.patientImpact})}
+            placeholder="e.g., Estimated 200 high-risk patients will receive proactive outreach, reducing ED utilization by 15% over 6 months…" />
+          {errors.patientImpact && <div style={{fontSize:11,color:"#ef4444",marginTop:4}}>Required.</div>}
+        </Field>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+          <Field label="Accountable Director / Leader" required>
+            <input value={form.accountableDirector} onChange={e=>setField("accountableDirector",e.target.value)}
+              style={inp({err:errors.accountableDirector})} placeholder="Name of director accountable for this project" />
+            {errors.accountableDirector && <div style={{fontSize:11,color:"#ef4444",marginTop:4}}>Required.</div>}
+          </Field>
+          <Field label="Is there a defined milestone or end date?">
+            <select value={form.hasMilestone} onChange={e=>setField("hasMilestone",e.target.value)} style={inp()}>
+              <option value="">Select…</option>
+              <option>Yes — dates entered above</option>
+              <option>Yes — but dates are TBD</option>
+              <option>No — ongoing initiative</option>
+            </select>
+          </Field>
+        </div>
+      </FormSection>
+
+      {/* Submit */}
+      <div style={{display:"flex",justifyContent:"flex-end",marginTop:8}}>
+        <button onClick={handleSubmit} disabled={submitting}
+          style={{background:submitting?"#94a3b8":"#E57200",color:"white",border:"none",borderRadius:9,padding:"13px 36px",fontSize:14,fontWeight:700,cursor:submitting?"default":"pointer",transition:"background 0.15s"}}>
+          {submitting ? "Submitting…" : "Submit Request →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FormSection({title, children}) {
+  return (
+    <div style={{background:"white",borderRadius:12,padding:24,marginBottom:16,boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
+      <div style={{fontSize:13,fontWeight:800,color:"#232D4B",marginBottom:18,paddingBottom:10,borderBottom:"1px solid #f1f5f9"}}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+// ── SUBMISSIONS REVIEW ────────────────────────────────────────────────────
+function SubmissionsView() {
+  const [submissions, setSubmissions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(null);
+
+  useEffect(() => {
+    dbLoadSubmissions().then(d => { setSubmissions(d); setLoading(false); });
+    // Realtime
+    const ch = sb.channel("intake-changes")
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"intake_submissions"}, payload => {
+        setSubmissions(s => [payload.new, ...s]);
+      })
+      .subscribe();
+    return () => sb.removeChannel(ch);
+  }, []);
+
+  if (loading) return <div style={{padding:40,textAlign:"center",color:"#94a3b8",fontSize:14}}>Loading submissions…</div>;
+  if (submissions.length === 0) return (
+    <div style={{padding:60,textAlign:"center",color:"#94a3b8",fontSize:14,background:"white",borderRadius:10,margin:"0 24px"}}>
+      No intake submissions yet.
+    </div>
+  );
+
+  return (
+    <div style={{padding:"16px 24px 40px",display:"flex",flexDirection:"column",gap:10}}>
+      {submissions.map(s => {
+        const d = s.data || {};
+        const r = d.readiness || scoreSubmission(d);
+        const isExp = expanded === s.id;
+        return (
+          <div key={s.id} style={{background:"white",borderRadius:10,border:"1px solid #e2e8f0",overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>
+            <div style={{padding:"14px 18px",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",cursor:"pointer"}} onClick={()=>setExpanded(isExp?null:s.id)}>
+              <div style={{flex:"1 1 200px"}}>
+                <div style={{fontWeight:700,fontSize:13.5,color:"#1e293b"}}>{d.projectName || "Untitled"}</div>
+                <div style={{fontSize:11.5,color:"#94a3b8",marginTop:3}}>
+                  <span style={{marginRight:10}}>👔 {d.submittingDirector}</span>
+                  <span>📅 {fmtDate(s.submitted_at)}</span>
+                </div>
+              </div>
+              {/* Readiness badge */}
+              <div style={{padding:"5px 14px",borderRadius:20,background:r.bg,color:r.color,fontSize:12,fontWeight:700,whiteSpace:"nowrap"}}>
+                {r.label}
+              </div>
+              <div style={{fontSize:12,color:"#94a3b8",whiteSpace:"nowrap"}}>Score: <strong style={{color:r.color}}>{r.score}/6</strong></div>
+              <div style={{fontSize:12,color:"#64748b",whiteSpace:"nowrap"}}>⏱ {d.weeklyHours}</div>
+              <span style={{color:"#94a3b8",fontSize:13}}>{isExp?"▲":"▼"}</span>
+            </div>
+
+            {isExp && (
+              <div style={{borderTop:"1px solid #f1f5f9",background:"#fafbfc",padding:"20px 24px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
+                <DetailBlock label="PH Objective" value={d.phObjective} />
+                <DetailBlock label="Patient / Community Impact" value={d.patientImpact} />
+                <DetailBlock label="Specialist Skills" value={(d.specialistSkills||[]).join(", ")||"—"} />
+                <DetailBlock label="Tasks" value={(d.tasks||[]).join(", ")||"—"} />
+                {d.adminJustification && <DetailBlock label="Admin Override Justification" value={d.adminJustification} span />}
+                <DetailBlock label="Accountable Director" value={d.accountableDirector} />
+                <DetailBlock label="Division" value={d.division||"—"} />
+                <DetailBlock label="Start Date" value={fmtDate(d.startDate)||"—"} />
+                <DetailBlock label="End Date" value={fmtDate(d.endDate)||"—"} />
+                <DetailBlock label="Weekly Hours" value={d.weeklyHours||"—"} />
+                <DetailBlock label="Milestone Defined?" value={d.hasMilestone||"—"} />
+
+                {/* Score breakdown */}
+                <div style={{gridColumn:"1 / -1",background:"white",border:"1px solid #e2e8f0",borderRadius:10,padding:"14px 18px"}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:10}}>Readiness Score Breakdown</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                    {[
+                      {label:"Clear PH Objective",     pts: (d.phObjective||"").trim().length>40 ? "+2":"+0"},
+                      {label:"Non-Admin Skills",        pts: (d.specialistSkills||[]).filter(s=>!ADMIN_TASKS.includes(s)).length>0 ? "+2":"+0"},
+                      {label:"Measurable Impact",       pts: (d.patientImpact||"").trim().length>30 ? "+1":"+0"},
+                      {label:"Defined Timeline",        pts: (d.startDate&&d.endDate) ? "+1":"+0"},
+                      {label:"Admin-Only Flag",         pts: (d.tasks||[]).length>0&&(d.tasks||[]).every(t=>ADMIN_TASKS.includes(t)) ? "-2":"0"},
+                      {label:"Missing Justification",   pts: (!(d.adminJustification||"").trim()&&(d.tasks||[]).every(t=>ADMIN_TASKS.includes(t))) ? "-1":"0"},
+                    ].map(item=>(
+                      <div key={item.label} style={{padding:"5px 12px",borderRadius:20,background:"#f1f5f9",fontSize:12,color:"#334155"}}>
+                        {item.label}: <strong style={{color:item.pts.startsWith("-")?"#ef4444":item.pts==="+0"?"#94a3b8":"#059669"}}>{item.pts}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{marginTop:12,fontSize:14,fontWeight:800,color:r.color}}>
+                    Total: {r.score}/6 — {r.label}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DetailBlock({label, value, span}) {
+  return (
+    <div style={{gridColumn:span?"1 / -1":"auto"}}>
+      <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:4}}>{label}</div>
+      <div style={{fontSize:13,color:"#334155",lineHeight:1.6}}>{value||"—"}</div>
+    </div>
+  );
+}
+
+// ── PROJECT TRACKER ───────────────────────────────────────────────────────
+function TrackerView({ user }) {
   const [projects, setProjects]         = useState([]);
   const [loaded, setLoaded]             = useState(false);
-  const [syncErr, setSyncErr]           = useState(false);
-  const [user, setUser]                 = useState("");
-  const [nameInput, setNameInput]       = useState("");
   const [search, setSearch]             = useState("");
   const [fDir, setFDir]                 = useState("All");
   const [fSpec, setFSpec]               = useState("All");
@@ -143,144 +549,231 @@ function App() {
   const [addOpen, setAddOpen]           = useState(false);
   const [newP, setNewP]                 = useState({program:"",director:"",division:"",specialist:"",priority:"Medium",notes:""});
   const [commentDrafts, setCommentDrafts] = useState({});
-  const [liveUsers, setLiveUsers]       = useState([]);
-  const channelRef                      = useRef(null);
 
   const inp = (s={}) => ({padding:"9px 11px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",...s});
 
-  // ── Initial load ────────────────────────────────────────────────────────
   const load = useCallback(async () => {
-    const rows = await dbLoad();
-    if (rows) {
-      setProjects(rows);
-      setSyncErr(false);
-    } else {
-      // First time — seed the database
-      await dbSave(INIT);
-      setProjects(INIT);
-    }
+    const rows = await dbLoadProjects();
+    if (rows) { setProjects(rows); }
+    else { await dbSaveProjects(INIT_PROJECTS); setProjects(INIT_PROJECTS); }
     setLoaded(true);
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Realtime subscription ───────────────────────────────────────────────
   useEffect(() => {
-    if (!user) return;
-
-    // Presence + data change channel
-    const channel = sb.channel("ph-tracker", {
-      config: { presence: { key: user } }
-    });
-
-    channel
-      .on("postgres_changes", {
-        event: "UPDATE",
-        schema: "public",
-        table: "projects",
-        filter: `id=eq.${DB_ROW_ID}`
-      }, payload => {
-        if (payload.new?.data) {
-          setProjects(payload.new.data.map(p => ({...p, comments: p.comments||[]})));
-        }
+    const ch = sb.channel("ph-tracker-data")
+      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"projects",filter:`id=eq.${TRACKER_ROW_ID}`}, payload => {
+        if (payload.new?.data) setProjects(payload.new.data.map(p=>({...p,comments:p.comments||[]})));
       })
-      .on("presence", { event: "sync" }, () => {
-        const state = channel.presenceState();
-        setLiveUsers(Object.keys(state));
-      })
-      .subscribe(async status => {
-        if (status === "SUBSCRIBED") {
-          await channel.track({ user, online_at: new Date().toISOString() });
-        }
-      });
+      .subscribe();
+    return () => sb.removeChannel(ch);
+  }, []);
 
-    channelRef.current = channel;
-    return () => { sb.removeChannel(channel); };
-  }, [user]);
-
-  // ── Persist ─────────────────────────────────────────────────────────────
   async function persist(updated) {
-    setProjects(updated);
-    setSaving(true);
-    try {
-      await dbSave(updated);
-      setSyncErr(false);
-    } catch(e) {
-      console.error(e);
-      setSyncErr(true);
-    }
+    setProjects(updated); setSaving(true);
+    await dbSaveProjects(updated);
     setSaving(false);
   }
 
-  function stamp(p, extra) { return {...p, ...extra, by: user, when: new Date().toISOString()}; }
+  function stamp(p, extra) { return {...p,...extra,by:user,when:new Date().toISOString()}; }
+  function upProg(id,pct) { persist(projects.map(p=>p.id!==id?p:stamp(p,{progress:pct,status:pct===100?"Complete":pct===0?"Not Started":p.status==="Not Started"?"In Progress":p.status}))); }
+  function upStat(id,status) { persist(projects.map(p=>p.id!==id?p:stamp(p,{status,progress:status==="Complete"?100:status==="Not Started"?0:p.progress}))); }
+  function saveEdit() { persist(projects.map(p=>p.id===editing?{...ef,by:user,when:new Date().toISOString()}:p)); setEditing(null); }
+  function addProject() { if(!newP.program.trim())return; persist([...projects,{...newP,id:Date.now(),progress:0,status:"Not Started",by:user,when:new Date().toISOString(),comments:[]}]); setNewP({program:"",director:"",division:"",specialist:"",priority:"Medium",notes:""}); setAddOpen(false); }
+  function postComment(id) { const text=(commentDrafts[id]||"").trim(); if(!text)return; const comment={id:Date.now(),text,by:user,when:new Date().toISOString()}; persist(projects.map(p=>p.id!==id?p:{...p,comments:[...(p.comments||[]),comment]})); setCommentDrafts(d=>({...d,[id]:""})); }
+  function deleteComment(pid,cid) { persist(projects.map(p=>p.id!==pid?p:{...p,comments:p.comments.filter(c=>c.id!==cid)})); }
 
-  function upProg(id, pct) {
-    persist(projects.map(p => p.id !== id ? p : stamp(p, {
-      progress: pct,
-      status: pct===100 ? "Complete" : pct===0 ? "Not Started" : p.status==="Not Started" ? "In Progress" : p.status
-    })));
-  }
+  const dirs  = ["All",...new Set(projects.map(p=>p.director))];
+  const specs = ["All",...new Set(projects.map(p=>p.specialist))];
+  const divs  = ["All",...new Set(projects.map(p=>p.division))];
 
-  function upStat(id, status) {
-    persist(projects.map(p => p.id !== id ? p : stamp(p, {
-      status,
-      progress: status==="Complete" ? 100 : status==="Not Started" ? 0 : p.progress
-    })));
-  }
-
-  function saveEdit() {
-    persist(projects.map(p => p.id === editing ? {...ef, by: user, when: new Date().toISOString()} : p));
-    setEditing(null);
-  }
-
-  function addProject() {
-    if (!newP.program.trim()) return;
-    persist([...projects, {...newP, id: Date.now(), progress:0, status:"Not Started", by:user, when:new Date().toISOString(), comments:[]}]);
-    setNewP({program:"",director:"",division:"",specialist:"",priority:"Medium",notes:""});
-    setAddOpen(false);
-  }
-
-  function postComment(id) {
-    const text = (commentDrafts[id]||"").trim();
-    if (!text) return;
-    const comment = {id: Date.now(), text, by: user, when: new Date().toISOString()};
-    persist(projects.map(p => p.id !== id ? p : {...p, comments:[...(p.comments||[]), comment]}));
-    setCommentDrafts(d => ({...d, [id]:""}));
-  }
-
-  function deleteComment(projectId, commentId) {
-    persist(projects.map(p => p.id !== projectId ? p : {...p, comments: p.comments.filter(c => c.id !== commentId)}));
-  }
-
-  const dirs  = ["All", ...new Set(projects.map(p => p.director))];
-  const specs = ["All", ...new Set(projects.map(p => p.specialist))];
-  const divs  = ["All", ...new Set(projects.map(p => p.division))];
-
-  const visible = projects.filter(p =>
-    (fDir==="All"  || p.director===fDir) &&
-    (fSpec==="All" || p.specialist===fSpec) &&
-    (fDiv==="All"  || p.division===fDiv) &&
-    (fStat==="All" || p.status===fStat) &&
-    (!search || [p.program,p.director,p.specialist,p.notes,p.division].some(v=>v.toLowerCase().includes(search.toLowerCase())))
+  const visible = projects.filter(p=>
+    (fDir==="All"||p.director===fDir)&&(fSpec==="All"||p.specialist===fSpec)&&
+    (fDiv==="All"||p.division===fDiv)&&(fStat==="All"||p.status===fStat)&&
+    (!search||[p.program,p.director,p.specialist,p.notes,p.division].some(v=>v.toLowerCase().includes(search.toLowerCase())))
   );
 
-  const ct = {
-    total: projects.length,
-    ns:   projects.filter(p=>p.status==="Not Started").length,
-    ip:   projects.filter(p=>p.status==="In Progress").length,
-    oh:   projects.filter(p=>p.status==="On Hold").length,
-    done: projects.filter(p=>p.status==="Complete").length,
-  };
+  const ct = { total:projects.length, ns:projects.filter(p=>p.status==="Not Started").length, ip:projects.filter(p=>p.status==="In Progress").length, oh:projects.filter(p=>p.status==="On Hold").length, done:projects.filter(p=>p.status==="Complete").length };
+  const hasFilter = search||fDir!=="All"||fSpec!=="All"||fDiv!=="All"||fStat!=="All";
 
-  const hasFilter = search || fDir!=="All" || fSpec!=="All" || fDiv!=="All" || fStat!=="All";
+  if (!loaded) return <div style={{padding:60,textAlign:"center",color:"#64748b",fontSize:14}}>Loading projects…</div>;
 
-  // ── Login ────────────────────────────────────────────────────────────────
+  return (
+    <div>
+      {/* Stats */}
+      <div style={{display:"flex",gap:10,padding:"16px 24px 12px",flexWrap:"wrap"}}>
+        {[{label:"Total",value:ct.total,color:"#232D4B",key:"All"},{label:"Not Started",value:ct.ns,color:"#ef4444",key:"Not Started"},{label:"In Progress",value:ct.ip,color:"#f59e0b",key:"In Progress"},{label:"On Hold",value:ct.oh,color:"#8b5cf6",key:"On Hold"},{label:"Complete",value:ct.done,color:"#22c55e",key:"Complete"}].map(c=>(
+          <div key={c.key} onClick={()=>setFStat(fStat===c.key?"All":c.key)}
+            style={{flex:"1 1 110px",background:"white",borderRadius:10,padding:"11px 14px",cursor:"pointer",borderTop:`3px solid ${c.color}`,boxShadow:fStat===c.key?`0 0 0 2px ${c.color},0 2px 8px rgba(0,0,0,0.1)`:"0 1px 3px rgba(0,0,0,0.07)",transition:"box-shadow 0.15s"}}>
+            <div style={{fontSize:28,fontWeight:800,color:c.color,lineHeight:1}}>{c.value}</div>
+            <div style={{fontSize:11,color:"#64748b",marginTop:4,fontWeight:500}}>{c.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div style={{display:"flex",gap:8,padding:"0 24px 12px",flexWrap:"wrap",alignItems:"center"}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍  Search projects…" style={{...inp({flex:"1 1 180px",width:"auto"})}} />
+        {[{label:"Director",val:fDir,set:setFDir,opts:dirs},{label:"Specialist",val:fSpec,set:setFSpec,opts:specs},{label:"Division",val:fDiv,set:setFDiv,opts:divs}].map(f=>(
+          <select key={f.label} value={f.val} onChange={e=>f.set(e.target.value)} style={{padding:"9px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,background:"white",outline:"none",cursor:"pointer"}}>
+            <option value="All">{f.label}: All</option>
+            {f.opts.filter(o=>o!=="All").map(o=><option key={o} value={o}>{o}</option>)}
+          </select>
+        ))}
+        {hasFilter && <button onClick={()=>{setSearch("");setFDir("All");setFSpec("All");setFDiv("All");setFStat("All");}} style={{padding:"9px 14px",border:"1.5px solid #e2e8f0",borderRadius:8,background:"white",fontSize:12,cursor:"pointer",color:"#64748b"}}>✕ Clear</button>}
+        <span style={{fontSize:12,color:"#94a3b8",marginLeft:"auto"}}>{visible.length} of {projects.length} projects</span>
+      </div>
+
+      {/* Add button row */}
+      <div style={{padding:"0 24px 8px",display:"flex",justifyContent:"flex-end"}}>
+        <button onClick={()=>setAddOpen(true)} style={{background:"#E57200",color:"white",border:"none",borderRadius:7,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Add Project</button>
+        {saving && <span style={{fontSize:11,color:"#E57200",fontStyle:"italic",marginLeft:10,alignSelf:"center"}}>Saving…</span>}
+      </div>
+
+      {/* Rows */}
+      <div style={{padding:"0 24px 40px",display:"flex",flexDirection:"column",gap:8}}>
+        {visible.length===0 && <div style={{textAlign:"center",padding:60,color:"#94a3b8",background:"white",borderRadius:10,fontSize:14}}>No projects match your filters.</div>}
+        {visible.map(p=>{
+          const col=pColor(p.progress); const isExp=expanded===p.id;
+          const pri=p.priority==="High"?{bg:"#fee2e2",txt:"#dc2626"}:p.priority==="Low"?{bg:"#dcfce7",txt:"#16a34a"}:{bg:"#fef3c7",txt:"#d97706"};
+          const sc=statColors[p.status]||"#94a3b8"; const commentCount=(p.comments||[]).length;
+          return (
+            <div key={p.id} style={{background:"white",borderRadius:10,border:"1px solid #e2e8f0",boxShadow:"0 1px 3px rgba(0,0,0,0.05)",overflow:"hidden"}}>
+              <div style={{padding:"12px 16px",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+                <div style={{flex:"1 1 200px",minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:13.5,color:"#1e293b",lineHeight:1.3}}>{p.program}</div>
+                  <div style={{fontSize:11.5,color:"#94a3b8",marginTop:3}}><span style={{marginRight:10}}>👔 {p.director}</span><span>📂 {p.division}</span></div>
+                </div>
+                <div style={{fontSize:11,background:"#f8fafc",border:"1px solid #e2e8f0",padding:"3px 9px",borderRadius:20,color:"#475569",whiteSpace:"nowrap"}}>👤 {p.specialist}</div>
+                <div style={{fontSize:11,padding:"3px 9px",borderRadius:20,fontWeight:700,background:pri.bg,color:pri.txt,whiteSpace:"nowrap"}}>{p.priority}</div>
+                <select value={p.status} onChange={e=>upStat(p.id,e.target.value)} style={{fontSize:12,padding:"4px 8px",border:`1.5px solid ${sc}`,borderRadius:6,color:sc,fontWeight:700,outline:"none",cursor:"pointer",background:"white",whiteSpace:"nowrap"}}>
+                  {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+                </select>
+                <div style={{flex:"0 0 230px",display:"flex",flexDirection:"column",gap:4}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <input type="range" min={0} max={100} value={p.progress} onChange={e=>upProg(p.id,Number(e.target.value))} style={{flex:1,accentColor:col,cursor:"pointer"}} />
+                    <span style={{fontSize:13,fontWeight:800,color:col,minWidth:34,textAlign:"right"}}>{p.progress}%</span>
+                  </div>
+                  <div style={{height:7,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${p.progress}%`,background:`linear-gradient(90deg,${pColor(Math.max(0,p.progress-10))},${col})`,borderRadius:4,transition:"width 0.35s,background 0.35s"}} />
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>setExpanded(isExp?null:p.id)} style={{height:30,padding:"0 10px",border:"1px solid #e2e8f0",borderRadius:6,background:isExp?"#f1f5f9":"white",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",gap:5,color:"#475569",whiteSpace:"nowrap"}}>
+                    {isExp?"▲":"▼"}
+                    {commentCount>0&&<span style={{background:"#232D4B",color:"white",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:700}}>{commentCount}</span>}
+                  </button>
+                  <button onClick={()=>{setEditing(p.id);setEf({...p});}} style={{width:30,height:30,border:"1px solid #e2e8f0",borderRadius:6,background:"white",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center"}}>✏️</button>
+                </div>
+              </div>
+              {isExp&&(
+                <div style={{borderTop:"1px solid #f1f5f9",background:"#fafbfc"}}>
+                  <div style={{padding:"14px 18px 12px",borderBottom:"1px solid #f1f5f9"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>Project Notes</div>
+                    <div style={{fontSize:13,color:"#334155",lineHeight:1.75}}>{p.notes||<em style={{color:"#cbd5e1"}}>No notes added.</em>}</div>
+                    {p.by&&<div style={{marginTop:8,fontSize:11,color:"#cbd5e1"}}>✏️ Last updated by <strong style={{color:"#94a3b8"}}>{p.by}</strong> on {fmtDate(p.when)}</div>}
+                  </div>
+                  <div style={{padding:"14px 18px 16px"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:12}}>Comments {commentCount>0&&`(${commentCount})`}</div>
+                    {(p.comments||[]).length===0&&<div style={{fontSize:13,color:"#cbd5e1",marginBottom:14,fontStyle:"italic"}}>No comments yet — be the first to add one.</div>}
+                    <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+                      {(p.comments||[]).map(c=>(
+                        <div key={c.id} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                          <div style={{width:30,height:30,borderRadius:"50%",background:avatarColor(c.by),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"white",flexShrink:0}}>{initials(c.by)}</div>
+                          <div style={{flex:1,background:"white",border:"1px solid #e2e8f0",borderRadius:"0 10px 10px 10px",padding:"9px 12px",boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                              <span style={{fontSize:12,fontWeight:700,color:"#232D4B"}}>{c.by}</span>
+                              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                <span style={{fontSize:11,color:"#94a3b8"}}>{fmtTime(c.when)}</span>
+                                {c.by===user&&<button onClick={()=>deleteComment(p.id,c.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:13,padding:0,lineHeight:1}} title="Delete comment">✕</button>}
+                              </div>
+                            </div>
+                            <div style={{fontSize:13,color:"#334155",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{c.text}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
+                      <div style={{width:30,height:30,borderRadius:"50%",background:avatarColor(user),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"white",flexShrink:0,marginBottom:1}}>{initials(user)}</div>
+                      <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
+                        <textarea value={commentDrafts[p.id]||""} onChange={e=>setCommentDrafts(d=>({...d,[p.id]:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();postComment(p.id);}}} placeholder="Add a comment… (Enter to post, Shift+Enter for new line)" rows={2} style={{width:"100%",padding:"9px 11px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,resize:"none",outline:"none",fontFamily:"inherit",lineHeight:1.5}} />
+                        <button onClick={()=>postComment(p.id)} disabled={!(commentDrafts[p.id]||"").trim()} style={{alignSelf:"flex-end",background:(commentDrafts[p.id]||"").trim()?"#232D4B":"#e2e8f0",color:(commentDrafts[p.id]||"").trim()?"white":"#94a3b8",border:"none",borderRadius:7,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:(commentDrafts[p.id]||"").trim()?"pointer":"default",transition:"background 0.15s"}}>Post Comment</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {editing&&(
+        <Modal title="Edit Project" onClose={()=>setEditing(null)} onSave={saveEdit} saveLabel="Save Changes">
+          {[{label:"Program / Project",key:"program"},{label:"Director",key:"director"},{label:"Division / Service Line",key:"division"},{label:"PH Specialist",key:"specialist"}].map(f=>(
+            <div key={f.key} style={{marginBottom:14}}>
+              <label style={{display:"block",fontSize:11,fontWeight:700,color:"#64748b",marginBottom:5,letterSpacing:"0.06em",textTransform:"uppercase"}}>{f.label}</label>
+              <input value={ef[f.key]||""} onChange={e=>setEf({...ef,[f.key]:e.target.value})} style={inp()} />
+            </div>
+          ))}
+          <div style={{marginBottom:14}}>
+            <label style={{display:"block",fontSize:11,fontWeight:700,color:"#64748b",marginBottom:5,letterSpacing:"0.06em",textTransform:"uppercase"}}>Priority</label>
+            <select value={ef.priority||"Medium"} onChange={e=>setEf({...ef,priority:e.target.value})} style={inp()}>{PRIORITIES.map(o=><option key={o}>{o}</option>)}</select>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={{display:"block",fontSize:11,fontWeight:700,color:"#64748b",marginBottom:5,letterSpacing:"0.06em",textTransform:"uppercase"}}>Notes</label>
+            <textarea value={ef.notes||""} onChange={e=>setEf({...ef,notes:e.target.value})} rows={5} style={inp({resize:"vertical"})} />
+          </div>
+        </Modal>
+      )}
+      {addOpen&&(
+        <Modal title="Add New Project" onClose={()=>setAddOpen(false)} onSave={addProject} saveLabel="Add Project">
+          {[{label:"Program / Project",key:"program"},{label:"Director",key:"director"},{label:"Division / Service Line",key:"division"},{label:"PH Specialist",key:"specialist"}].map(f=>(
+            <div key={f.key} style={{marginBottom:14}}>
+              <label style={{display:"block",fontSize:11,fontWeight:700,color:"#64748b",marginBottom:5,letterSpacing:"0.06em",textTransform:"uppercase"}}>{f.label}</label>
+              <input value={newP[f.key]||""} onChange={e=>setNewP({...newP,[f.key]:e.target.value})} style={inp()} />
+            </div>
+          ))}
+          <div style={{marginBottom:14}}>
+            <label style={{display:"block",fontSize:11,fontWeight:700,color:"#64748b",marginBottom:5,letterSpacing:"0.06em",textTransform:"uppercase"}}>Priority</label>
+            <select value={newP.priority||"Medium"} onChange={e=>setNewP({...newP,priority:e.target.value})} style={inp()}>{PRIORITIES.map(o=><option key={o}>{o}</option>)}</select>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={{display:"block",fontSize:11,fontWeight:700,color:"#64748b",marginBottom:5,letterSpacing:"0.06em",textTransform:"uppercase"}}>Notes</label>
+            <textarea value={newP.notes||""} onChange={e=>setNewP({...newP,notes:e.target.value})} rows={4} style={inp({resize:"vertical"})} />
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── ROOT APP ──────────────────────────────────────────────────────────────
+function App() {
+  const [user, setUser]         = useState("");
+  const [nameInput, setNameInput] = useState("");
+  const [tab, setTab]           = useState("tracker");
+  const [liveUsers, setLiveUsers] = useState([]);
+  const channelRef              = useRef(null);
+
+  const inp = (s={}) => ({padding:"9px 11px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",...s});
+
+  useEffect(() => {
+    if (!user) return;
+    const channel = sb.channel("ph-presence", { config:{ presence:{ key: user } } });
+    channel.on("presence",{event:"sync"},()=>{ setLiveUsers(Object.keys(channel.presenceState())); })
+      .subscribe(async status => { if(status==="SUBSCRIBED") await channel.track({user,online_at:new Date().toISOString()}); });
+    channelRef.current = channel;
+    return () => sb.removeChannel(channel);
+  }, [user]);
+
   if (!user) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"linear-gradient(135deg,#232D4B 0%,#1a2236 100%)"}}>
       <div style={{background:"white",borderRadius:16,padding:40,width:380,textAlign:"center",boxShadow:"0 30px 80px rgba(0,0,0,0.4)"}}>
         <div style={{width:58,height:58,background:"#232D4B",borderRadius:12,margin:"0 auto 16px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>🏥</div>
         <h2 style={{margin:"0 0 4px",color:"#232D4B",fontSize:20,fontWeight:800}}>UVA Population Health</h2>
-        <p style={{color:"#94a3b8",margin:"0 0 28px",fontSize:13}}>New Programmatic/Initiative Management</p>
+        <p style={{color:"#94a3b8",margin:"0 0 28px",fontSize:13}}>Project Tracker & Specialist Intake</p>
         <label style={{display:"block",textAlign:"left",fontSize:11,fontWeight:700,color:"#64748b",marginBottom:6,letterSpacing:"0.06em",textTransform:"uppercase"}}>Your Name</label>
         <input value={nameInput} onChange={e=>setNameInput(e.target.value)}
           onKeyDown={e=>e.key==="Enter"&&nameInput.trim()&&setUser(nameInput.trim())}
@@ -295,13 +788,8 @@ function App() {
     </div>
   );
 
-  if (!loaded) return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"#64748b",fontSize:14}}>
-      Connecting to database…
-    </div>
-  );
+  const submissionCount = tab; // just to keep linter quiet
 
-  // ── Dashboard ─────────────────────────────────────────────────────────────
   return (
     <div style={{minHeight:"100vh",background:"#f1f5f9"}}>
 
@@ -309,265 +797,44 @@ function App() {
       <div style={{background:"#232D4B",padding:"13px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,borderBottom:"3px solid #E57200",position:"sticky",top:0,zIndex:50}}>
         <div>
           <div style={{color:"white",fontWeight:800,fontSize:15}}>UVA Health · Population Health</div>
-          <div style={{color:"rgba(255,255,255,0.55)",fontSize:11.5,marginTop:1}}>New Programmatic/Initiative Management</div>
+          <div style={{color:"rgba(255,255,255,0.55)",fontSize:11.5,marginTop:1}}>Project Tracker & Specialist Intake</div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-
-          {/* Live users */}
-          {liveUsers.length > 0 && (
+          {liveUsers.length>0&&(
             <div style={{display:"flex",alignItems:"center",gap:4}}>
-              <span style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",display:"inline-block",boxShadow:"0 0 0 2px rgba(34,197,94,0.3)"}} />
-              <span style={{fontSize:11,color:"rgba(255,255,255,0.6)"}}>
-                {liveUsers.length === 1 ? "Just you" : `${liveUsers.length} online`}
-              </span>
+              <span style={{width:7,height:7,borderRadius:"50%",background:"#22c55e",display:"inline-block"}} />
+              <span style={{fontSize:11,color:"rgba(255,255,255,0.6)"}}>{liveUsers.length===1?"Just you":`${liveUsers.length} online`}</span>
               <div style={{display:"flex",marginLeft:4}}>
                 {liveUsers.slice(0,5).map(u=>(
-                  <div key={u} title={u} style={{width:22,height:22,borderRadius:"50%",background:avatarColor(u),display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"white",border:"1.5px solid #232D4B",marginLeft:-4}}>
-                    {initials(u)}
-                  </div>
+                  <div key={u} title={u} style={{width:22,height:22,borderRadius:"50%",background:avatarColor(u),display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"white",border:"1.5px solid #232D4B",marginLeft:-4}}>{initials(u)}</div>
                 ))}
               </div>
             </div>
           )}
-
-          {saving && <span style={{fontSize:11,color:"#E57200",fontStyle:"italic"}}>Saving…</span>}
-          {syncErr && <span style={{fontSize:11,color:"#ef4444",fontStyle:"italic"}}>⚠ Sync error</span>}
-
-          <button onClick={()=>setAddOpen(true)}
-            style={{background:"#E57200",color:"white",border:"none",borderRadius:7,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
-            + Add Project
-          </button>
           <div style={{background:"rgba(255,255,255,0.12)",color:"white",fontSize:12,padding:"6px 14px",borderRadius:20,display:"flex",alignItems:"center",gap:6}}>
-            <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:22,height:22,borderRadius:"50%",background:avatarColor(user),fontSize:10,fontWeight:700}}>
-              {initials(user)}
-            </span>
+            <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:22,height:22,borderRadius:"50%",background:avatarColor(user),fontSize:10,fontWeight:700}}>{initials(user)}</span>
             {user}
           </div>
         </div>
       </div>
 
-      {/* Stats */}
-      <div style={{display:"flex",gap:10,padding:"16px 24px 12px",flexWrap:"wrap"}}>
+      {/* Tabs */}
+      <div style={{background:"white",borderBottom:"1px solid #e2e8f0",padding:"0 24px",display:"flex",gap:0}}>
         {[
-          {label:"Total",       value:ct.total, color:"#232D4B", key:"All"},
-          {label:"Not Started", value:ct.ns,    color:"#ef4444", key:"Not Started"},
-          {label:"In Progress", value:ct.ip,    color:"#f59e0b", key:"In Progress"},
-          {label:"On Hold",     value:ct.oh,    color:"#8b5cf6", key:"On Hold"},
-          {label:"Complete",    value:ct.done,  color:"#22c55e", key:"Complete"},
-        ].map(c=>(
-          <div key={c.key} onClick={()=>setFStat(fStat===c.key?"All":c.key)}
-            style={{flex:"1 1 110px",background:"white",borderRadius:10,padding:"11px 14px",cursor:"pointer",
-              borderTop:`3px solid ${c.color}`,
-              boxShadow:fStat===c.key?`0 0 0 2px ${c.color},0 2px 8px rgba(0,0,0,0.1)`:"0 1px 3px rgba(0,0,0,0.07)",
-              transition:"box-shadow 0.15s"}}>
-            <div style={{fontSize:28,fontWeight:800,color:c.color,lineHeight:1}}>{c.value}</div>
-            <div style={{fontSize:11,color:"#64748b",marginTop:4,fontWeight:500}}>{c.label}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Filters */}
-      <div style={{display:"flex",gap:8,padding:"0 24px 12px",flexWrap:"wrap",alignItems:"center"}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍  Search projects…"
-          style={{...inp({flex:"1 1 180px",width:"auto"})}} />
-        {[
-          {label:"Director",  val:fDir,  set:setFDir,  opts:dirs},
-          {label:"Specialist",val:fSpec, set:setFSpec, opts:specs},
-          {label:"Division",  val:fDiv,  set:setFDiv,  opts:divs},
-        ].map(f=>(
-          <select key={f.label} value={f.val} onChange={e=>f.set(e.target.value)}
-            style={{padding:"9px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,background:"white",outline:"none",cursor:"pointer"}}>
-            <option value="All">{f.label}: All</option>
-            {f.opts.filter(o=>o!=="All").map(o=><option key={o} value={o}>{o}</option>)}
-          </select>
-        ))}
-        {hasFilter && (
-          <button onClick={()=>{setSearch("");setFDir("All");setFSpec("All");setFDiv("All");setFStat("All");}}
-            style={{padding:"9px 14px",border:"1.5px solid #e2e8f0",borderRadius:8,background:"white",fontSize:12,cursor:"pointer",color:"#64748b"}}>
-            ✕ Clear
+          {key:"tracker",    label:"📋  Project Tracker"},
+          {key:"intake",     label:"📝  Submit Request"},
+          {key:"submissions",label:"🔍  Intake Submissions"},
+        ].map(t=>(
+          <button key={t.key} className={`tab-btn${tab===t.key?" active":""}`} onClick={()=>setTab(t.key)}>
+            {t.label}
           </button>
-        )}
-        <span style={{fontSize:12,color:"#94a3b8",marginLeft:"auto"}}>{visible.length} of {projects.length} projects</span>
+        ))}
       </div>
 
-      {/* Project rows */}
-      <div style={{padding:"0 24px 40px",display:"flex",flexDirection:"column",gap:8}}>
-        {visible.length===0 && (
-          <div style={{textAlign:"center",padding:60,color:"#94a3b8",background:"white",borderRadius:10,fontSize:14}}>
-            No projects match your filters.
-          </div>
-        )}
-        {visible.map(p => {
-          const col = pColor(p.progress);
-          const isExp = expanded === p.id;
-          const pri = p.priority==="High" ? {bg:"#fee2e2",txt:"#dc2626"} :
-                      p.priority==="Low"  ? {bg:"#dcfce7",txt:"#16a34a"} :
-                                            {bg:"#fef3c7",txt:"#d97706"};
-          const sc = statColors[p.status]||"#94a3b8";
-          const commentCount = (p.comments||[]).length;
-
-          return (
-            <div key={p.id} style={{background:"white",borderRadius:10,border:"1px solid #e2e8f0",boxShadow:"0 1px 3px rgba(0,0,0,0.05)",overflow:"hidden"}}>
-
-              {/* Summary row */}
-              <div style={{padding:"12px 16px",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-                <div style={{flex:"1 1 200px",minWidth:0}}>
-                  <div style={{fontWeight:700,fontSize:13.5,color:"#1e293b",lineHeight:1.3}}>{p.program}</div>
-                  <div style={{fontSize:11.5,color:"#94a3b8",marginTop:3}}>
-                    <span style={{marginRight:10}}>👔 {p.director}</span>
-                    <span>📂 {p.division}</span>
-                  </div>
-                </div>
-                <div style={{fontSize:11,background:"#f8fafc",border:"1px solid #e2e8f0",padding:"3px 9px",borderRadius:20,color:"#475569",whiteSpace:"nowrap"}}>
-                  👤 {p.specialist}
-                </div>
-                <div style={{fontSize:11,padding:"3px 9px",borderRadius:20,fontWeight:700,background:pri.bg,color:pri.txt,whiteSpace:"nowrap"}}>
-                  {p.priority}
-                </div>
-                <select value={p.status} onChange={e=>upStat(p.id,e.target.value)}
-                  style={{fontSize:12,padding:"4px 8px",border:`1.5px solid ${sc}`,borderRadius:6,color:sc,fontWeight:700,outline:"none",cursor:"pointer",background:"white",whiteSpace:"nowrap"}}>
-                  {STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
-                </select>
-                <div style={{flex:"0 0 230px",display:"flex",flexDirection:"column",gap:4}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <input type="range" min={0} max={100} value={p.progress}
-                      onChange={e=>upProg(p.id,Number(e.target.value))}
-                      style={{flex:1,accentColor:col,cursor:"pointer"}} />
-                    <span style={{fontSize:13,fontWeight:800,color:col,minWidth:34,textAlign:"right"}}>{p.progress}%</span>
-                  </div>
-                  <div style={{height:7,background:"#f1f5f9",borderRadius:4,overflow:"hidden"}}>
-                    <div style={{height:"100%",width:`${p.progress}%`,background:`linear-gradient(90deg,${pColor(Math.max(0,p.progress-10))},${col})`,borderRadius:4,transition:"width 0.35s,background 0.35s"}} />
-                  </div>
-                </div>
-                <div style={{display:"flex",gap:6}}>
-                  <button onClick={()=>setExpanded(isExp?null:p.id)}
-                    style={{height:30,padding:"0 10px",border:"1px solid #e2e8f0",borderRadius:6,background:isExp?"#f1f5f9":"white",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",gap:5,color:"#475569",whiteSpace:"nowrap"}}>
-                    {isExp?"▲":"▼"}
-                    {commentCount > 0 && (
-                      <span style={{background:"#232D4B",color:"white",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:700}}>{commentCount}</span>
-                    )}
-                  </button>
-                  <button onClick={()=>{setEditing(p.id);setEf({...p});}}
-                    style={{width:30,height:30,border:"1px solid #e2e8f0",borderRadius:6,background:"white",cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                    ✏️
-                  </button>
-                </div>
-              </div>
-
-              {/* Expanded panel */}
-              {isExp && (
-                <div style={{borderTop:"1px solid #f1f5f9",background:"#fafbfc"}}>
-                  <div style={{padding:"14px 18px 12px",borderBottom:"1px solid #f1f5f9"}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:6}}>Project Notes</div>
-                    <div style={{fontSize:13,color:"#334155",lineHeight:1.75}}>
-                      {p.notes || <em style={{color:"#cbd5e1"}}>No notes added.</em>}
-                    </div>
-                    {p.by && (
-                      <div style={{marginTop:8,fontSize:11,color:"#cbd5e1"}}>
-                        ✏️ Last updated by <strong style={{color:"#94a3b8"}}>{p.by}</strong> on {fmtDate(p.when)}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Comments */}
-                  <div style={{padding:"14px 18px 16px"}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:12}}>
-                      Comments {commentCount > 0 && `(${commentCount})`}
-                    </div>
-                    {(p.comments||[]).length === 0 && (
-                      <div style={{fontSize:13,color:"#cbd5e1",marginBottom:14,fontStyle:"italic"}}>No comments yet — be the first to add one.</div>
-                    )}
-                    <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
-                      {(p.comments||[]).map(c=>(
-                        <div key={c.id} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
-                          <div style={{width:30,height:30,borderRadius:"50%",background:avatarColor(c.by),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"white",flexShrink:0}}>
-                            {initials(c.by)}
-                          </div>
-                          <div style={{flex:1,background:"white",border:"1px solid #e2e8f0",borderRadius:"0 10px 10px 10px",padding:"9px 12px",boxShadow:"0 1px 2px rgba(0,0,0,0.04)"}}>
-                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                              <span style={{fontSize:12,fontWeight:700,color:"#232D4B"}}>{c.by}</span>
-                              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                                <span style={{fontSize:11,color:"#94a3b8"}}>{fmtTime(c.when)}</span>
-                                {c.by === user && (
-                                  <button onClick={()=>deleteComment(p.id,c.id)}
-                                    style={{background:"none",border:"none",cursor:"pointer",color:"#cbd5e1",fontSize:13,padding:0,lineHeight:1}}
-                                    title="Delete comment">✕</button>
-                                )}
-                              </div>
-                            </div>
-                            <div style={{fontSize:13,color:"#334155",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{c.text}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{display:"flex",gap:10,alignItems:"flex-end"}}>
-                      <div style={{width:30,height:30,borderRadius:"50%",background:avatarColor(user),display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:"white",flexShrink:0,marginBottom:1}}>
-                        {initials(user)}
-                      </div>
-                      <div style={{flex:1,display:"flex",flexDirection:"column",gap:6}}>
-                        <textarea
-                          value={commentDrafts[p.id]||""}
-                          onChange={e=>setCommentDrafts(d=>({...d,[p.id]:e.target.value}))}
-                          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();postComment(p.id);}}}
-                          placeholder="Add a comment… (Enter to post, Shift+Enter for new line)"
-                          rows={2}
-                          style={{width:"100%",padding:"9px 11px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,resize:"none",outline:"none",fontFamily:"inherit",lineHeight:1.5}} />
-                        <button onClick={()=>postComment(p.id)}
-                          disabled={!(commentDrafts[p.id]||"").trim()}
-                          style={{alignSelf:"flex-end",
-                            background:(commentDrafts[p.id]||"").trim()?"#232D4B":"#e2e8f0",
-                            color:(commentDrafts[p.id]||"").trim()?"white":"#94a3b8",
-                            border:"none",borderRadius:7,padding:"7px 16px",fontSize:12,fontWeight:700,
-                            cursor:(commentDrafts[p.id]||"").trim()?"pointer":"default",transition:"background 0.15s"}}>
-                          Post Comment
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Edit Modal */}
-      {editing && (
-        <Modal title="Edit Project" onClose={()=>setEditing(null)} onSave={saveEdit} saveLabel="Save Changes">
-          {[{label:"Program / Project",key:"program"},{label:"Director",key:"director"},{label:"Division / Service Line",key:"division"},{label:"PH Specialist",key:"specialist"}].map(f=>(
-            <Field key={f.key} label={f.label}>
-              <input value={ef[f.key]||""} onChange={e=>setEf({...ef,[f.key]:e.target.value})} style={inp()} />
-            </Field>
-          ))}
-          <Field label="Priority">
-            <select value={ef.priority||"Medium"} onChange={e=>setEf({...ef,priority:e.target.value})} style={inp()}>
-              {PRIORITIES.map(o=><option key={o}>{o}</option>)}
-            </select>
-          </Field>
-          <Field label="Notes">
-            <textarea value={ef.notes||""} onChange={e=>setEf({...ef,notes:e.target.value})} rows={5} style={inp({resize:"vertical"})} />
-          </Field>
-        </Modal>
-      )}
-
-      {/* Add Modal */}
-      {addOpen && (
-        <Modal title="Add New Project" onClose={()=>setAddOpen(false)} onSave={addProject} saveLabel="Add Project">
-          {[{label:"Program / Project",key:"program"},{label:"Director",key:"director"},{label:"Division / Service Line",key:"division"},{label:"PH Specialist",key:"specialist"}].map(f=>(
-            <Field key={f.key} label={f.label}>
-              <input value={newP[f.key]||""} onChange={e=>setNewP({...newP,[f.key]:e.target.value})} style={inp()} />
-            </Field>
-          ))}
-          <Field label="Priority">
-            <select value={newP.priority||"Medium"} onChange={e=>setNewP({...newP,priority:e.target.value})} style={inp()}>
-              {PRIORITIES.map(o=><option key={o}>{o}</option>)}
-            </select>
-          </Field>
-          <Field label="Notes">
-            <textarea value={newP.notes||""} onChange={e=>setNewP({...newP,notes:e.target.value})} rows={4} style={inp({resize:"vertical"})} />
-          </Field>
-        </Modal>
-      )}
+      {/* Tab content */}
+      {tab==="tracker"     && <TrackerView user={user} />}
+      {tab==="intake"      && <IntakeForm onSubmitted={()=>setTab("submissions")} />}
+      {tab==="submissions" && <SubmissionsView />}
     </div>
   );
 }
