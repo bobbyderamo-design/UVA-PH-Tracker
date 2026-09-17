@@ -59,9 +59,14 @@ const PRIORITIES = ["High","Medium","Low"];
 
 const PH_SKILLS = [
   "Clinical Program Design",
+  "Program / Project Management",
+  "Workflow / Process Development & Improvement",
+  "Policy / Procedure Development & Improvement",
   "Data Analysis & Reporting",
   "Care Coordination",
   "Stakeholder Facilitation",
+  "Vendor / Partner Management",
+  "Resource / Service Coordination",
   "Regulatory Compliance",
   "Community Outreach",
   "Quality Improvement",
@@ -314,10 +319,10 @@ function IntakeForm({ onSubmitted }) {
       {/* Section 2 */}
       <FormSection title="2. Clinical & Population Health Justification">
         <Field label="Clinical or Population Health Objective" required
-          hint="Describe the specific clinical or population health goal this project advances. Vague or purely operational descriptions will be flagged.">
+          hint="Describe the specific clinical, population health, programmatic, or strategic goal this project advances. Requests that are primarily administrative or logistical will be redirected to the appropriate resource.">
           <textarea value={form.phObjective} onChange={e=>{setField("phObjective",e.target.value);setObjectiveWarning(false);}}
             rows={4} style={inp({resize:"vertical",err:errors.phObjective})}
-            placeholder="e.g., Reduce 30-day hospital readmissions for CHF patients by implementing a remote monitoring protocol that identifies decompensation early..." />
+            placeholder="e.g., Reduce 30-day readmissions for CHF patients by implementing a remote monitoring protocol; expand the transportation program to serve high-risk ZIP codes; develop a departmental onboarding workflow that improves specialist orientation..." />
           {objectiveWarning && (
             <div style={{marginTop:8,padding:"10px 14px",background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:8,fontSize:12,color:"#92400e"}}>
               ⚠ <strong>A clear clinical or population health objective is required</strong> to request PH Specialist support. Please describe the patient or community health goal in more detail.
@@ -329,7 +334,7 @@ function IntakeForm({ onSubmitted }) {
 
       {/* Section 3 */}
       <FormSection title="3. PH Specialist Skills Required">
-        <Field label="Select all specialist competencies this project requires" required>
+        <Field label="Select the PH Specialist competencies or areas of expertise needed to successfully support this project" required>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             {PH_SKILLS.map(skill=>(
               <label key={skill} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",border:`1.5px solid ${form.specialistSkills.includes(skill)?"#232D4B":"#e2e8f0"}`,borderRadius:8,cursor:"pointer",fontSize:13,background:form.specialistSkills.includes(skill)?"#f0f4ff":"white",transition:"all 0.1s"}}>
@@ -344,9 +349,9 @@ function IntakeForm({ onSubmitted }) {
 
       {/* Section 4 */}
       <FormSection title="4. Tasks & Administrative Screen">
-        <Field label="Select all tasks the specialist will be performing" hint="Check everything that applies — clinical and administrative.">
+        <Field label="Select the specific work the PH Specialist will perform as part of this project" hint="Check all that apply, including substantive program/project work and administrative tasks.">
           <div style={{marginBottom:12}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:8}}>Clinical / Program Tasks</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:8}}>Program / Project Tasks</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
               {CLINICAL_TASKS.map(task=>(
                 <label key={task} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",border:`1.5px solid ${form.tasks.includes(task)?"#059669":"#e2e8f0"}`,borderRadius:8,cursor:"pointer",fontSize:13,background:form.tasks.includes(task)?"#f0fdf4":"white",transition:"all 0.1s"}}>
@@ -388,10 +393,10 @@ function IntakeForm({ onSubmitted }) {
       {/* Section 5 */}
       <FormSection title="5. Impact & Accountability">
         <Field label="Expected Patient or Community Impact" required
-          hint="Describe measurable or observable outcomes. Who benefits and how?">
+          hint="What do you want this project to accomplish or change? Describe the expected measurable or observable impact and who benefits.">
           <textarea value={form.patientImpact} onChange={e=>setField("patientImpact",e.target.value)}
             rows={3} style={inp({resize:"vertical",err:errors.patientImpact})}
-            placeholder="e.g., Estimated 200 high-risk patients will receive proactive outreach, reducing ED utilization by 15% over 6 months…" />
+            placeholder="e.g., This project will reduce ED utilization by 15% for 200 high-risk patients through proactive outreach; or, it will reduce onboarding time for new specialists from 4 weeks to 2 weeks by standardizing the orientation process…" />
           {errors.patientImpact && <div style={{fontSize:11,color:"#ef4444",marginTop:4}}>Required.</div>}
         </Field>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
