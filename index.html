@@ -54,19 +54,14 @@ const INIT_PROJECTS = [
   { id:16, program:"Project Management Support",               director:"Robert",         division:"Department Wide",                  specialist:"All",         progress:0, status:"Not Started", priority:"High",   notes:"This happens all over the place in a variety of divisions. Need to establish a process or tool to track current and future projects. Robert will lead this effort to systemize the project intake process working closely with the PH Specialists, Directors, and Vickie.", by:"", when:"", comments:[] },
 ];
 
-const STATUSES  = ["Not Started","In Progress","Ongoing","On Hold","Complete"];
+const STATUSES  = ["Not Started","In Progress","On Hold","Complete"];
 const PRIORITIES = ["High","Medium","Low"];
 
 const PH_SKILLS = [
   "Clinical Program Design",
-  "Program / Project Management",
-  "Workflow / Process Development & Improvement",
-  "Policy / Procedure Development & Improvement",
   "Data Analysis & Reporting",
   "Care Coordination",
   "Stakeholder Facilitation",
-  "Vendor / Partner Management",
-  "Resource / Service Coordination",
   "Regulatory Compliance",
   "Community Outreach",
   "Quality Improvement",
@@ -139,7 +134,7 @@ function avatarColor(name) {
   let h = 0; for (let c of name) h = (h * 31 + c.charCodeAt(0)) % colors.length;
   return colors[h];
 }
-const statColors = {"Not Started":"#94a3b8","In Progress":"#f59e0b","Ongoing":"#0369a1","On Hold":"#8b5cf6","Complete":"#22c55e"};
+const statColors = {"Not Started":"#94a3b8","In Progress":"#f59e0b","On Hold":"#8b5cf6","Complete":"#22c55e"};
 
 // ── DB ────────────────────────────────────────────────────────────────────
 async function dbLoadProjects() {
@@ -319,10 +314,10 @@ function IntakeForm({ onSubmitted }) {
       {/* Section 2 */}
       <FormSection title="2. Clinical & Population Health Justification">
         <Field label="Clinical or Population Health Objective" required
-          hint="Describe the specific clinical, population health, programmatic, or strategic goal this project advances. Requests that are primarily administrative or logistical will be redirected to the appropriate resource.">
+          hint="Describe the specific clinical or population health goal this project advances. Vague or purely operational descriptions will be flagged.">
           <textarea value={form.phObjective} onChange={e=>{setField("phObjective",e.target.value);setObjectiveWarning(false);}}
             rows={4} style={inp({resize:"vertical",err:errors.phObjective})}
-            placeholder="e.g., Reduce 30-day readmissions for CHF patients by implementing a remote monitoring protocol; expand the transportation program to serve high-risk ZIP codes; develop a departmental onboarding workflow that improves specialist orientation..." />
+            placeholder="e.g., Reduce 30-day hospital readmissions for CHF patients by implementing a remote monitoring protocol that identifies decompensation early..." />
           {objectiveWarning && (
             <div style={{marginTop:8,padding:"10px 14px",background:"#fef3c7",border:"1px solid #fcd34d",borderRadius:8,fontSize:12,color:"#92400e"}}>
               ⚠ <strong>A clear clinical or population health objective is required</strong> to request PH Specialist support. Please describe the patient or community health goal in more detail.
@@ -334,7 +329,7 @@ function IntakeForm({ onSubmitted }) {
 
       {/* Section 3 */}
       <FormSection title="3. PH Specialist Skills Required">
-        <Field label="Select the PH Specialist competencies or areas of expertise needed to successfully support this project" required>
+        <Field label="Select all specialist competencies this project requires" required>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             {PH_SKILLS.map(skill=>(
               <label key={skill} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",border:`1.5px solid ${form.specialistSkills.includes(skill)?"#232D4B":"#e2e8f0"}`,borderRadius:8,cursor:"pointer",fontSize:13,background:form.specialistSkills.includes(skill)?"#f0f4ff":"white",transition:"all 0.1s"}}>
@@ -349,9 +344,9 @@ function IntakeForm({ onSubmitted }) {
 
       {/* Section 4 */}
       <FormSection title="4. Tasks & Administrative Screen">
-        <Field label="Select the specific work the PH Specialist will perform as part of this project" hint="Check all that apply, including substantive program/project work and administrative tasks.">
+        <Field label="Select all tasks the specialist will be performing" hint="Check everything that applies — clinical and administrative.">
           <div style={{marginBottom:12}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:8}}>Program / Project Tasks</div>
+            <div style={{fontSize:11,fontWeight:700,color:"#94a3b8",letterSpacing:"0.05em",textTransform:"uppercase",marginBottom:8}}>Clinical / Program Tasks</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
               {CLINICAL_TASKS.map(task=>(
                 <label key={task} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",border:`1.5px solid ${form.tasks.includes(task)?"#059669":"#e2e8f0"}`,borderRadius:8,cursor:"pointer",fontSize:13,background:form.tasks.includes(task)?"#f0fdf4":"white",transition:"all 0.1s"}}>
@@ -393,10 +388,10 @@ function IntakeForm({ onSubmitted }) {
       {/* Section 5 */}
       <FormSection title="5. Impact & Accountability">
         <Field label="Expected Patient or Community Impact" required
-          hint="What do you want this project to accomplish or change? Describe the expected measurable or observable impact and who benefits.">
+          hint="Describe measurable or observable outcomes. Who benefits and how?">
           <textarea value={form.patientImpact} onChange={e=>setField("patientImpact",e.target.value)}
             rows={3} style={inp({resize:"vertical",err:errors.patientImpact})}
-            placeholder="e.g., This project will reduce ED utilization by 15% for 200 high-risk patients through proactive outreach; or, it will reduce onboarding time for new specialists from 4 weeks to 2 weeks by standardizing the orientation process…" />
+            placeholder="e.g., Estimated 200 high-risk patients will receive proactive outreach, reducing ED utilization by 15% over 6 months…" />
           {errors.patientImpact && <div style={{fontSize:11,color:"#ef4444",marginTop:4}}>Required.</div>}
         </Field>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
@@ -554,8 +549,6 @@ function TrackerView({ user }) {
   const [addOpen, setAddOpen]           = useState(false);
   const [newP, setNewP]                 = useState({program:"",director:"",division:"",specialist:"",priority:"Medium",notes:""});
   const [commentDrafts, setCommentDrafts] = useState({});
-  const dragItem = useRef(null);
-  const dragOver = useRef(null);
 
   const inp = (s={}) => ({padding:"9px 11px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",fontFamily:"inherit",width:"100%",...s});
 
@@ -584,32 +577,6 @@ function TrackerView({ user }) {
   }
 
   function stamp(p, extra) { return {...p,...extra,by:user,when:new Date().toISOString()}; }
-
-  function handleDragStart(e, index) {
-    dragItem.current = index;
-    e.dataTransfer.effectAllowed = "move";
-  }
-  function handleDragEnter(e, index) {
-    dragOver.current = index;
-  }
-  function handleDragEnd() {
-    // Reorder projects array based on drag
-    const allProjects = [...projects];
-    // Find the actual project indices in the full array
-    const draggedProject = visible[dragItem.current];
-    const targetProject  = visible[dragOver.current];
-    if (!draggedProject || !targetProject || draggedProject.id === targetProject.id) {
-      dragItem.current = null; dragOver.current = null; return;
-    }
-    const fromIdx = allProjects.findIndex(p => p.id === draggedProject.id);
-    const toIdx   = allProjects.findIndex(p => p.id === targetProject.id);
-    const reordered = [...allProjects];
-    reordered.splice(fromIdx, 1);
-    reordered.splice(toIdx, 0, draggedProject);
-    persist(reordered);
-    dragItem.current = null;
-    dragOver.current = null;
-  }
   function upProg(id,pct) { persist(projects.map(p=>p.id!==id?p:stamp(p,{progress:pct,status:pct===100?"Complete":pct===0?"Not Started":p.status==="Not Started"?"In Progress":p.status}))); }
   function upStat(id,status) { persist(projects.map(p=>p.id!==id?p:stamp(p,{status,progress:status==="Complete"?100:status==="Not Started"?0:p.progress}))); }
   function saveEdit() { persist(projects.map(p=>p.id===editing?{...ef,by:user,when:new Date().toISOString()}:p)); setEditing(null); }
@@ -623,11 +590,11 @@ function TrackerView({ user }) {
 
   const visible = projects.filter(p=>
     (fDir==="All"||p.director===fDir)&&(fSpec==="All"||p.specialist===fSpec)&&
-    (fDiv==="All"||p.division===fDiv)&&(fStat==="All"||p.status===fStat)&&
+    (fDiv==="All"||p.division===fDiv)&&(fStat==="All" ? p.status!=="Complete" : p.status===fStat)&&
     (!search||[p.program,p.director,p.specialist,p.notes,p.division].some(v=>v.toLowerCase().includes(search.toLowerCase())))
   );
 
-  const ct = { total:projects.length, ns:projects.filter(p=>p.status==="Not Started").length, ip:projects.filter(p=>p.status==="In Progress").length, og:projects.filter(p=>p.status==="Ongoing").length, oh:projects.filter(p=>p.status==="On Hold").length, done:projects.filter(p=>p.status==="Complete").length };
+  const ct = { total:projects.length, ns:projects.filter(p=>p.status==="Not Started").length, ip:projects.filter(p=>p.status==="In Progress").length, oh:projects.filter(p=>p.status==="On Hold").length, done:projects.filter(p=>p.status==="Complete").length };
   const hasFilter = search||fDir!=="All"||fSpec!=="All"||fDiv!=="All"||fStat!=="All";
 
   if (!loaded) return <div style={{padding:60,textAlign:"center",color:"#64748b",fontSize:14}}>Loading projects…</div>;
@@ -636,7 +603,7 @@ function TrackerView({ user }) {
     <div>
       {/* Stats */}
       <div style={{display:"flex",gap:10,padding:"16px 24px 12px",flexWrap:"wrap"}}>
-        {[{label:"Total",value:ct.total,color:"#232D4B",key:"All"},{label:"Not Started",value:ct.ns,color:"#ef4444",key:"Not Started"},{label:"In Progress",value:ct.ip,color:"#f59e0b",key:"In Progress"},{label:"Ongoing",value:ct.og,color:"#0369a1",key:"Ongoing"},{label:"On Hold",value:ct.oh,color:"#8b5cf6",key:"On Hold"},{label:"Complete",value:ct.done,color:"#22c55e",key:"Complete"}].map(c=>(
+        {[{label:"Total",value:ct.total,color:"#232D4B",key:"All"},{label:"Not Started",value:ct.ns,color:"#ef4444",key:"Not Started"},{label:"In Progress",value:ct.ip,color:"#f59e0b",key:"In Progress"},{label:"On Hold",value:ct.oh,color:"#8b5cf6",key:"On Hold"},{label:"Complete",value:ct.done,color:"#22c55e",key:"Complete"}].map(c=>(
           <div key={c.key} onClick={()=>setFStat(fStat===c.key?"All":c.key)}
             style={{flex:"1 1 110px",background:"white",borderRadius:10,padding:"11px 14px",cursor:"pointer",borderTop:`3px solid ${c.color}`,boxShadow:fStat===c.key?`0 0 0 2px ${c.color},0 2px 8px rgba(0,0,0,0.1)`:"0 1px 3px rgba(0,0,0,0.07)",transition:"box-shadow 0.15s"}}>
             <div style={{fontSize:28,fontWeight:800,color:c.color,lineHeight:1}}>{c.value}</div>
@@ -667,20 +634,13 @@ function TrackerView({ user }) {
       {/* Rows */}
       <div style={{padding:"0 24px 40px",display:"flex",flexDirection:"column",gap:8}}>
         {visible.length===0 && <div style={{textAlign:"center",padding:60,color:"#94a3b8",background:"white",borderRadius:10,fontSize:14}}>No projects match your filters.</div>}
-        {visible.map((p,visIdx)=>{
+        {visible.map(p=>{
           const col=pColor(p.progress); const isExp=expanded===p.id;
           const pri=p.priority==="High"?{bg:"#fee2e2",txt:"#dc2626"}:p.priority==="Low"?{bg:"#dcfce7",txt:"#16a34a"}:{bg:"#fef3c7",txt:"#d97706"};
           const sc=statColors[p.status]||"#94a3b8"; const commentCount=(p.comments||[]).length;
           return (
-            <div key={p.id}
-              draggable
-              onDragStart={e=>handleDragStart(e,visIdx)}
-              onDragEnter={e=>handleDragEnter(e,visIdx)}
-              onDragEnd={handleDragEnd}
-              onDragOver={e=>e.preventDefault()}
-              style={{background:"white",borderRadius:10,border:"1px solid #e2e8f0",boxShadow:"0 1px 3px rgba(0,0,0,0.05)",overflow:"hidden",cursor:"grab"}}>
+            <div key={p.id} style={{background:"white",borderRadius:10,border:"1px solid #e2e8f0",boxShadow:"0 1px 3px rgba(0,0,0,0.05)",overflow:"hidden"}}>
               <div style={{padding:"12px 16px",display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-                <div title="Drag to reorder" style={{color:"#cbd5e1",fontSize:16,cursor:"grab",flexShrink:0,userSelect:"none",lineHeight:1}}>⠿</div>
                 <div style={{flex:"1 1 200px",minWidth:0}}>
                   <div style={{fontWeight:700,fontSize:13.5,color:"#1e293b",lineHeight:1.3}}>{p.program}</div>
                   <div style={{fontSize:11.5,color:"#94a3b8",marginTop:3}}><span style={{marginRight:10}}>👔 {p.director}</span><span>📂 {p.division}</span></div>
